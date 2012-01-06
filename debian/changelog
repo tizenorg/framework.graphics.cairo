@@ -1,0 +1,15 @@
+cairo (1.11.3-slp2+8) unstable; urgency=low
+
+  * Remove SLP keyword
+  * Git: unmodified/cairo.git
+  * Tag: cairo_1.11.3-slp2+8
+
+ -- Seongwon Cho <seongwon1.cho@samsung.com>  Fri, 23 Dec 2011 11:26:04 +0900
+
+cairo (1.11.3-slp2+7) unstable; urgency=low
+
+  * Initial version
+  * Git: unmodified/cairo.git
+  * Tag: cairo_1.11.3-slp2+7
+
+ -- Seongwon Cho <seongwon1.cho@samsung.com>  Thu, 15 Dec 2011 12:54:03 +0900
