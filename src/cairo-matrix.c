@@ -743,19 +743,6 @@ _cairo_matrix_has_unity_scale (const cairo_matrix_t *matrix)
     return TRUE;
 }
 
-#ifdef TIZEN_FIX_DASHED_LINE_STROKE
-/* Check whether matrix is uniform scale or not */
-cairo_bool_t
-_cairo_matrix_has_uniform_scale (const cairo_matrix_t *matrix)
-{
-    if (matrix->xy == 0.0 && matrix->yx == 0.0) {
-	if (matrix->xx == matrix->yy)
-	    return TRUE;
-    }
-    return FALSE;
-}
-#endif
-
 /* By pixel exact here, we mean a matrix that is composed only of
  * 90 degree rotations, flips, and integer translations and produces a 1:1
  * mapping between source and destination pixels. If we transform an image

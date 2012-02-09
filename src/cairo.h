@@ -2940,7 +2940,6 @@ cairo_debug_reset_static_data (void);
 #endif
 
 #ifdef TIZEN_ENABLE_FEATURE
-#define TIZEN_FIX_DASHED_LINE_STROKE /* Dashed line is displayed as unbroken line for certain scaling factor */
 #endif /* TIZEN_ENABLE_FEATURE */
 
 CAIRO_END_DECLS

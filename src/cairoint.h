@@ -1652,12 +1652,6 @@ _cairo_matrix_is_integer_translation(const cairo_matrix_t *matrix,
 cairo_private cairo_bool_t
 _cairo_matrix_has_unity_scale (const cairo_matrix_t *matrix);
 
-#ifdef TIZEN_FIX_DASHED_LINE_STROKE
-/* Check whether matrix is uniform scale or not */
-cairo_private cairo_bool_t
-_cairo_matrix_has_uniform_scale (const cairo_matrix_t *matrix);
-#endif
-
 cairo_private cairo_bool_t
 _cairo_matrix_is_pixel_exact (const cairo_matrix_t *matrix) cairo_pure;
 

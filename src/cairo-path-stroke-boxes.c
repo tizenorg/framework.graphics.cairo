@@ -122,38 +122,20 @@ _cairo_rectilinear_stroker_init (cairo_rectilinear_stroker_t	*stroker,
 	return FALSE;
     }
 
-#ifdef TIZEN_FIX_DASHED_LINE_STROKE
-/* Use uniform scale instead of unity scale */
-    if (! _cairo_matrix_has_uniform_scale (ctm))
-	return FALSE;
-#else
     if (! _cairo_matrix_has_unity_scale (ctm))
 	return FALSE;
-#endif
 
     stroker->stroke_style = stroke_style;
     stroker->ctm = ctm;
     stroker->antialias = antialias;
 
     stroker->half_line_width =
-#ifdef TIZEN_FIX_DASHED_LINE_STROKE
-/* Scale line width using ctm matrix's xx value */
-	_cairo_fixed_from_double (stroke_style->line_width*ctm->xx / 2.0);
-#else
 	_cairo_fixed_from_double (stroke_style->line_width / 2.0);
-#endif
 
     stroker->open_sub_path = FALSE;
     stroker->segments = stroker->segments_embedded;
     stroker->segments_size = ARRAY_LENGTH (stroker->segments_embedded);
     stroker->num_segments = 0;
-
-#ifdef TIZEN_FIX_DASHED_LINE_STROKE
-/* Scale stroke style's dash using ctm matrix's xx value */
-    int i;
-    for(i =0;i < stroke_style->num_dashes;i++)
-	stroke_style->dash[i] *= ctm->xx;
-#endif
 
     _cairo_stroker_dash_init (&stroker->dash, stroke_style);
 
@@ -627,9 +609,6 @@ _cairo_path_fixed_stroke_rectilinear_to_boxes (const cairo_path_fixed_t	*path,
     cairo_rectilinear_stroker_t rectilinear_stroker;
     cairo_int_status_t status;
     cairo_box_t box;
-#ifdef TIZEN_FIX_DASHED_LINE_STROKE
-    int i;
-#endif
 
     assert (_cairo_path_fixed_stroke_is_rectilinear (path));
 
@@ -715,22 +694,10 @@ _cairo_path_fixed_stroke_rectilinear_to_boxes (const cairo_path_fixed_t	*path,
 	goto BAIL;
 
 done:
-#ifdef TIZEN_FIX_DASHED_LINE_STROKE
-/* Restore stroke style's dash value */
-    for(i =0;i < stroke_style->num_dashes;i++)
-	stroke_style->dash[i] /= ctm->xx;
-#endif
-
     _cairo_rectilinear_stroker_fini (&rectilinear_stroker);
     return CAIRO_STATUS_SUCCESS;
 
 BAIL:
-#ifdef TIZEN_FIX_DASHED_LINE_STROKE
-/* Restore stroke style's dash value */
-    for(i =0;i < stroke_style->num_dashes;i++)
-	stroke_style->dash[i] /= ctm->xx;
-#endif
-
     _cairo_rectilinear_stroker_fini (&rectilinear_stroker);
     _cairo_boxes_clear (boxes);
     return status;
