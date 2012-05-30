@@ -7,6 +7,7 @@ Group:      System/Libraries
 License:    LGPLv2 or MPLv1.1
 URL:        http://www.cairographics.org
 Source0:    http://cairographics.org/releases/%{name}-%{version}.tar.gz
+Source1001: packaging/cairo.manifest 
 
 Requires(post): /sbin/ldconfig
 Requires(postun): /sbin/ldconfig
@@ -43,6 +44,7 @@ cairo development libraries and head files
 %setup -q -n %{name}-%{version}
 
 %build
+cp %{SOURCE1001} .
 NOCONFIGURE=1 ./autogen.sh
 %configure --disable-static \
     --disable-win32 \
@@ -65,9 +67,11 @@ rm -rf $RPM_BUILD_ROOT/usr/share/gtk-doc
 %postun -p /sbin/ldconfig
 
 %files
+%manifest cairo.manifest
 %{_libdir}/libcairo*.so.*
 
 %files devel
+%manifest cairo.manifest
 %{_includedir}/*
 %{_libdir}/libcairo*.so
 %{_libdir}/pkgconfig/*
