@@ -1,5 +1,5 @@
 /*
- * Copyright © 2011 Uli Schlachter
+ * Copyright © 2012 Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person
  * obtaining a copy of this software and associated documentation
@@ -21,55 +21,56 @@
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  *
- * Author: Uli Schlachter <psychon@znc.in>
+ * Author: Chris Wilson <chris@chris-wilson.co.uk>
  */
 
-#include "cairo.h"
 #include "cairo-test.h"
-
-static cairo_surface_t *
-create_image (int width, int height)
-{
-    cairo_surface_t *surface;
-    cairo_t *cr;
-
-    surface = cairo_image_surface_create (CAIRO_FORMAT_ARGB32, width, height);
-    /* Paint something random to the image */
-    cr = cairo_create (surface);
-    cairo_surface_destroy (surface);
-
-    cairo_set_source_rgb (cr, 0, 1, 1);
-    cairo_paint (cr);
-
-    surface = cairo_surface_reference (cairo_get_target (cr));
-    cairo_destroy (cr);
-
-    return surface;
-}
 
 static cairo_test_status_t
 draw (cairo_t *cr, int width, int height)
 {
-    cairo_surface_t *image;
-
-    /* Image has to have same geometry as xcb surface to be added as a snapshot */
-    image = create_image (width, height);
-    cairo_set_source_surface (cr, image, 0, 0);
-    cairo_surface_destroy (image);
-
-    /* This attaches the tested xcb surface as a snapshot */
+    cairo_set_source_rgb (cr, 1, 1, 1);
     cairo_paint (cr);
+    cairo_set_source_rgb (cr, 0, 0, 0);
 
-    /* Now cairo is modifying a snapshot which fails an
-     * assert in _cairo_surface_begin_modification */
+    cairo_translate (cr, 0, 0);
+    cairo_save (cr);
+    cairo_rectangle (cr, 10, 10, 20, 20);
+    cairo_rectangle (cr, 20, 10, -10, 10);
+    cairo_clip (cr);
     cairo_paint (cr);
+    cairo_restore (cr);
+
+    cairo_translate (cr, 40, 0);
+    cairo_save (cr);
+    cairo_rectangle (cr, 10, 10, 20, 20);
+    cairo_rectangle (cr, 30, 10, -10, 10);
+    cairo_clip (cr);
+    cairo_paint (cr);
+    cairo_restore (cr);
+
+    cairo_translate (cr, 0, 40);
+    cairo_save (cr);
+    cairo_rectangle (cr, 10, 10, 20, 20);
+    cairo_rectangle (cr, 30, 20, -10, 10);
+    cairo_clip (cr);
+    cairo_paint (cr);
+    cairo_restore (cr);
+
+    cairo_translate (cr, -40, 0);
+    cairo_save (cr);
+    cairo_rectangle (cr, 10, 10, 20, 20);
+    cairo_rectangle (cr, 20, 20, -10, 10);
+    cairo_clip (cr);
+    cairo_paint (cr);
+    cairo_restore (cr);
 
     return CAIRO_TEST_SUCCESS;
 }
 
-CAIRO_TEST (xcb_snapshot_assert,
-	    "Test a wrong _cairo_surface_attach_snapshot call",
-	    "xcb", /* keywords */
+CAIRO_TEST (bug_bo_collins,
+	    "Exercises a bug discovered by S. Christian Collins",
+	    "clip, rectangular", /* keywords */
 	    NULL, /* requirements */
-	    2, 2,
+	    80, 80,
 	    NULL, draw)

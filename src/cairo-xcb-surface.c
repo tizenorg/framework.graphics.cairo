@@ -45,8 +45,8 @@
 
 #include "cairo-composite-rectangles-private.h"
 #include "cairo-default-context-private.h"
+#include "cairo-image-surface-inline.h"
 #include "cairo-list-inline.h"
-#include "cairo-image-surface-private.h"
 #include "cairo-surface-backend-private.h"
 
 #if CAIRO_HAS_XLIB_XCB_FUNCTIONS
@@ -755,21 +755,25 @@ _cairo_xcb_surface_flush (void *abstract_surface)
     return status;
 }
 
-static cairo_surface_t *
+static cairo_image_surface_t *
 _cairo_xcb_surface_map_to_image (void *abstract_surface,
 				 const cairo_rectangle_int_t *extents)
 {
     cairo_xcb_surface_t *surface = abstract_surface;
     cairo_surface_t *image;
+    cairo_status_t status;
 
     if (surface->fallback)
-	return surface->fallback->base.backend->map_to_image (&surface->fallback->base, extents);
+	return _cairo_surface_map_to_image (&surface->fallback->base, extents);
 
     image = _get_image (surface, TRUE,
 			extents->x, extents->y,
 			extents->width, extents->height);
-    if (unlikely (image->status))
-	return image;
+    status = cairo_surface_status (image);
+    if (unlikely (status)) {
+	cairo_surface_destroy(image);
+	return _cairo_image_surface_create_in_error (status);
+    }
 
     /* Do we have a deferred clear and this image surface does NOT cover the
      * whole xcb surface? Have to apply the clear in that case, else
@@ -778,16 +782,16 @@ _cairo_xcb_surface_map_to_image (void *abstract_surface,
     if (surface->deferred_clear &&
 	! (extents->width == surface->width &&
 	   extents->height == surface->height)) {
-	cairo_status_t status = _cairo_xcb_surface_clear (surface);
+	status = _cairo_xcb_surface_clear (surface);
 	if (unlikely (status)) {
 	    cairo_surface_destroy(image);
-	    return _cairo_surface_create_in_error (status);
+	    return _cairo_image_surface_create_in_error (status);
 	}
     }
     surface->deferred_clear = FALSE;
 
     cairo_surface_set_device_offset (image, -extents->x, -extents->y);
-    return image;
+    return (cairo_image_surface_t *) image;
 }
 
 static cairo_int_status_t
@@ -795,10 +799,17 @@ _cairo_xcb_surface_unmap (void *abstract_surface,
 			  cairo_image_surface_t *image)
 {
     cairo_xcb_surface_t *surface = abstract_surface;
+    cairo_int_status_t status;
 
     if (surface->fallback)
-	return surface->fallback->base.backend->unmap_image (&surface->fallback->base, image);
-    return _put_image (abstract_surface, image);
+	return _cairo_surface_unmap_image (&surface->fallback->base, image);
+
+    status = _put_image (abstract_surface, image);
+
+    cairo_surface_finish (&image->base);
+    cairo_surface_destroy (&image->base);
+
+    return status;
 }
 
 static cairo_surface_t *

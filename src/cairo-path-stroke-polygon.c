@@ -232,50 +232,6 @@ join_is_clockwise (const cairo_stroke_face_t *in,
     return _cairo_slope_compare (&in->dev_vector, &out->dev_vector) < 0;
 }
 
-static cairo_int64_t
-distance_from_face (const cairo_stroke_face_t *face,
-		    const cairo_point_t *p,
-		    cairo_bool_t negate)
-{
-    int32_t dx = (p->x - face->point.x);
-    int32_t dy = (p->y - face->point.y);
-    cairo_int64_t d;
-
-    d = _cairo_int64_sub (_cairo_int32x32_64_mul (dx, face->dev_vector.dy),
-			  _cairo_int32x32_64_mul (dy, face->dev_vector.dx));
-    if (negate)
-	d = _cairo_int64_negate (d);
-    return d;
-}
-
-static cairo_int64_t
-distance_along_face (const cairo_stroke_face_t *face,
-		    const cairo_point_t *p)
-{
-    int32_t dx = (p->x - face->point.x);
-    int32_t dy = (p->y - face->point.y);
-    return _cairo_int64_add (_cairo_int32x32_64_mul (dx, face->dev_vector.dx),
-			     _cairo_int32x32_64_mul (dy, face->dev_vector.dy));
-}
-
-static void
-compute_inner_joint (cairo_point_t *p1, cairo_int64_t d_p1,
-		     const cairo_point_t *p2, cairo_int64_t d_p2,
-		     cairo_int64_t half_line_width)
-{
-    int32_t dx = p2->x - p1->x;
-    int32_t dy = p2->y - p1->y;
-
-    half_line_width = _cairo_int64_sub (half_line_width, d_p1);
-    d_p2 = _cairo_int64_sub (d_p2, d_p1);
-
-    p1->x += _cairo_int_96by64_32x64_divrem (_cairo_int64x32_128_mul (half_line_width, dx),
-					      d_p2).quo;
-
-    p1->y += _cairo_int_96by64_32x64_divrem (_cairo_int64x32_128_mul (half_line_width, dy),
-					      d_p2).quo;
-}
-
 static void
 inner_join (struct stroker *stroker,
 	    const cairo_stroke_face_t *in,
@@ -1096,7 +1052,6 @@ line_to (void *closure,
     cairo_stroke_face_t start;
     cairo_point_t *p1 = &stroker->current_face.point;
     cairo_slope_t dev_slope;
-    int move_last = 0;
 
     stroker->has_initial_sub_path = TRUE;
 
@@ -1113,9 +1068,7 @@ line_to (void *closure,
     if (stroker->has_current_face) {
 	int clockwise = _cairo_slope_compare (&stroker->current_face.dev_vector,
 					      &start.dev_vector);
-	if (clockwise == 0) {
-	    move_last = 1;
-	} else {
+	if (clockwise) {
 	    clockwise = clockwise < 0;
 	    /* Join with final face from previous segment */
 	    if (! within_tolerance (&stroker->current_face.ccw, &start.ccw,
@@ -1146,13 +1099,8 @@ line_to (void *closure,
     stroker->current_face.cw.x += dev_slope.dx;
     stroker->current_face.cw.y += dev_slope.dy;
 
-    if (move_last) {
-	*_cairo_contour_last_point (&stroker->cw.contour) = stroker->current_face.cw;
-	*_cairo_contour_last_point (&stroker->ccw.contour) = stroker->current_face.ccw;
-    } else {
-	contour_add_point (stroker, &stroker->cw, &stroker->current_face.cw);
-	contour_add_point (stroker, &stroker->ccw, &stroker->current_face.ccw);
-    }
+    contour_add_point (stroker, &stroker->cw, &stroker->current_face.cw);
+    contour_add_point (stroker, &stroker->ccw, &stroker->current_face.ccw);
 
     return CAIRO_STATUS_SUCCESS;
 }

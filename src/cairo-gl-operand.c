@@ -69,6 +69,39 @@ _cairo_gl_create_gradient_texture (cairo_gl_surface_t *dst,
     return _cairo_gl_context_release (ctx, status);
 }
 
+static cairo_int_status_t
+_resolve_multisampling (cairo_gl_surface_t *surface)
+{
+    cairo_gl_context_t *ctx;
+    cairo_int_status_t status;
+
+    if (! surface->msaa_active)
+	return CAIRO_INT_STATUS_SUCCESS;
+
+    if (surface->base.device == NULL)
+	return CAIRO_INT_STATUS_SUCCESS;
+
+    /* GLES surfaces do not need explicit resolution. */
+    if (((cairo_gl_context_t *) surface->base.device)->gl_flavor == CAIRO_GL_FLAVOR_ES)
+	return CAIRO_INT_STATUS_SUCCESS;
+
+    if (! _cairo_gl_surface_is_texture (surface))
+	return CAIRO_INT_STATUS_SUCCESS;
+
+    status = _cairo_gl_context_acquire (surface->base.device, &ctx);
+    if (unlikely (status))
+	return status;
+
+    ctx->current_target = surface;
+
+#if CAIRO_HAS_GL_SURFACE
+    _cairo_gl_activate_surface_as_nonmultisampling (ctx, surface);
+#endif
+
+    status = _cairo_gl_context_release (ctx, status);
+    return status;
+}
+
 static cairo_status_t
 _cairo_gl_subsurface_clone_operand_init (cairo_gl_operand_t *operand,
 					 const cairo_pattern_t *_src,
@@ -127,6 +160,10 @@ _cairo_gl_subsurface_clone_operand_init (cairo_gl_operand_t *operand,
 	_cairo_surface_subsurface_set_snapshot (&sub->base, &surface->base);
     }
 
+    status = _resolve_multisampling (surface);
+    if (unlikely (status))
+        return status;
+
     attributes = &operand->texture.attributes;
 
     operand->type = CAIRO_GL_OPERAND_TEXTURE;
@@ -162,6 +199,7 @@ _cairo_gl_subsurface_operand_init (cairo_gl_operand_t *operand,
     cairo_surface_subsurface_t *sub;
     cairo_gl_surface_t *surface;
     cairo_surface_attributes_t *attributes;
+    cairo_int_status_t status;
 
     sub = (cairo_surface_subsurface_t *) src->surface;
 
@@ -177,11 +215,15 @@ _cairo_gl_subsurface_operand_init (cairo_gl_operand_t *operand,
     if (surface->base.device && surface->base.device != dst->base.device)
 	return CAIRO_INT_STATUS_UNSUPPORTED;
 
+    status = _resolve_multisampling (surface);
+    if (unlikely (status))
+	return status;
+
     /* Translate the matrix from
      * (unnormalized src -> unnormalized src) to
      * (unnormalized dst -> unnormalized src)
      */
-    *operand = surface->operand;
+    _cairo_gl_operand_copy(operand, &surface->operand);
 
     attributes = &operand->texture.attributes;
     attributes->matrix = src->base.matrix;
@@ -207,6 +249,7 @@ _cairo_gl_surface_operand_init (cairo_gl_operand_t *operand,
     const cairo_surface_pattern_t *src = (cairo_surface_pattern_t *)_src;
     cairo_gl_surface_t *surface;
     cairo_surface_attributes_t *attributes;
+    cairo_int_status_t status;
 
     surface = (cairo_gl_surface_t *) src->surface;
     if (surface->base.type != CAIRO_SURFACE_TYPE_GL)
@@ -223,7 +266,11 @@ _cairo_gl_surface_operand_init (cairo_gl_operand_t *operand,
     if (surface->base.device && surface->base.device != dst->base.device)
 	return CAIRO_INT_STATUS_UNSUPPORTED;
 
-    *operand = surface->operand;
+    status = _resolve_multisampling (surface);
+    if (unlikely (status))
+	return status;
+
+    _cairo_gl_operand_copy(operand, &surface->operand);
 
     attributes = &operand->texture.attributes;
     cairo_matrix_multiply (&attributes->matrix,
@@ -245,8 +292,9 @@ _cairo_gl_pattern_texture_setup (cairo_gl_operand_t *operand,
     cairo_status_t status;
     cairo_gl_surface_t *surface;
     cairo_gl_context_t *ctx;
-    cairo_surface_t *image;
+    cairo_image_surface_t *image;
     cairo_bool_t src_is_gl_surface = FALSE;
+    cairo_rectangle_int_t map_extents;
 
     if (_src->type == CAIRO_PATTERN_TYPE_SURFACE) {
 	cairo_surface_t* src_surface = ((cairo_surface_pattern_t *) _src)->surface;
@@ -261,7 +309,9 @@ _cairo_gl_pattern_texture_setup (cairo_gl_operand_t *operand,
 	_cairo_gl_surface_create_scratch (ctx,
 					  CAIRO_CONTENT_COLOR_ALPHA,
 					  extents->width, extents->height);
-    image = cairo_surface_map_to_image (&surface->base, NULL);
+    map_extents = *extents;
+    map_extents.x = map_extents.y = 0;
+    image = _cairo_surface_map_to_image (&surface->base, &map_extents);
 
     /* If the pattern is a GL surface, it belongs to some other GL context,
        so we need to release this device while we paint it to the image. */
@@ -271,7 +321,7 @@ _cairo_gl_pattern_texture_setup (cairo_gl_operand_t *operand,
 	    goto fail;
     }
 
-    status = _cairo_surface_offset_paint (image, extents->x, extents->y,
+    status = _cairo_surface_offset_paint (&image->base, extents->x, extents->y,
 					  CAIRO_OPERATOR_SOURCE, _src, NULL);
 
     if (src_is_gl_surface) {
@@ -280,7 +330,7 @@ _cairo_gl_pattern_texture_setup (cairo_gl_operand_t *operand,
 	    goto fail;
     }
 
-    cairo_surface_unmap_image (&surface->base, image);
+    status = _cairo_surface_unmap_image (&surface->base, image);
     status = _cairo_gl_context_release (ctx, status);
     if (unlikely (status))
 	goto fail;
