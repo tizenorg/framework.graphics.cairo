@@ -74,14 +74,16 @@
  *
  * The Quartz surface is used to render cairo graphics targeting the
  * Apple OS X Quartz rendering system.
- */
+ **/
 
 /**
  * CAIRO_HAS_QUARTZ_SURFACE:
  *
  * Defined if the Quartz surface backend is available.
  * This macro can be used to conditionally compile backend-specific code.
- */
+ *
+ * Since: 1.6
+ **/
 
 #if __MAC_OS_X_VERSION_MIN_REQUIRED < 1050
 /* This method is private, but it exists.  Its params are are exposed
@@ -1634,7 +1636,8 @@ _cairo_quartz_cg_paint (const cairo_compositor_t *compositor,
     cairo_quartz_drawing_state_t state;
     cairo_int_status_t rv;
 
-    ND ((stderr, "%p _cairo_quartz_surface_paint op %d source->type %d\n", surface, op, source->type));
+    ND ((stderr, "%p _cairo_quartz_surface_paint op %d source->type %d\n",
+	 extents->surface, extents->op, extents->source_pattern.base.type));
 
     rv = _cairo_quartz_setup_state (&state, extents);
     if (unlikely (rv))
@@ -1732,7 +1735,9 @@ _cairo_quartz_cg_mask (const cairo_compositor_t *compositor,
     cairo_bool_t need_temp;
     CGInterpolationQuality filter;
 
-    ND ((stderr, "%p _cairo_quartz_surface_mask op %d source->type %d mask->type %d\n", surface, op, source->type, mask->type));
+    ND ((stderr, "%p _cairo_quartz_surface_mask op %d source->type %d mask->type %d\n",
+	 extents->surface, extents->op, extents->source_pattern.base.type,
+	 extents->mask_pattern.base.type));
 
     if (mask->type == CAIRO_PATTERN_TYPE_SOLID)
 	return _cairo_quartz_cg_mask_with_solid (surface, extents);
@@ -1820,7 +1825,8 @@ _cairo_quartz_cg_fill (const cairo_compositor_t *compositor,
     cairo_quartz_drawing_state_t state;
     cairo_int_status_t rv = CAIRO_STATUS_SUCCESS;
 
-    ND ((stderr, "%p _cairo_quartz_surface_fill op %d source->type %d\n", surface, op, source->type));
+    ND ((stderr, "%p _cairo_quartz_surface_fill op %d source->type %d\n",
+	 extents->surface, extents->op, extents->source_pattern.base.type));
 
     rv = _cairo_quartz_setup_state (&state, extents);
     if (unlikely (rv))
@@ -1866,7 +1872,8 @@ _cairo_quartz_cg_stroke (const cairo_compositor_t *compositor,
     cairo_int_status_t rv = CAIRO_STATUS_SUCCESS;
     CGAffineTransform strokeTransform, invStrokeTransform;
 
-    ND ((stderr, "%p _cairo_quartz_surface_stroke op %d source->type %d\n", surface, op, source->type));
+    ND ((stderr, "%p _cairo_quartz_surface_stroke op %d source->type %d\n",
+	 extents->surface, extents->op, extents->source_pattern.base.type));
 
     rv = _cairo_quartz_setup_state (&state, extents);
     if (unlikely (rv))
@@ -1975,6 +1982,7 @@ _cairo_quartz_cg_glyphs (const cairo_compositor_t *compositor,
 
     switch (scaled_font->options.antialias) {
 	case CAIRO_ANTIALIAS_SUBPIXEL:
+	case CAIRO_ANTIALIAS_BEST:
 	    CGContextSetShouldAntialias (state.cgMaskContext, TRUE);
 	    CGContextSetShouldSmoothFonts (state.cgMaskContext, TRUE);
 	    if (CGContextSetAllowsFontSmoothingPtr &&
@@ -1988,6 +1996,8 @@ _cairo_quartz_cg_glyphs (const cairo_compositor_t *compositor,
 	    CGContextSetShouldAntialias (state.cgMaskContext, FALSE);
 	    break;
 	case CAIRO_ANTIALIAS_GRAY:
+	case CAIRO_ANTIALIAS_GOOD:
+	case CAIRO_ANTIALIAS_FAST:
 	    CGContextSetShouldAntialias (state.cgMaskContext, TRUE);
 	    CGContextSetShouldSmoothFonts (state.cgMaskContext, FALSE);
 	    break;
@@ -2206,6 +2216,7 @@ static const struct _cairo_surface_backend cairo_quartz_surface_backend = {
     _cairo_quartz_surface_map_to_image,
     _cairo_quartz_surface_unmap_image,
 
+    _cairo_surface_default_source,
     _cairo_quartz_surface_acquire_source_image,
     _cairo_quartz_surface_release_source_image,
     _cairo_quartz_surface_snapshot,
@@ -2280,7 +2291,7 @@ _cairo_quartz_surface_create_internal (CGContextRef cgContext,
 }
 
 /**
- * cairo_quartz_surface_create_for_cg_context
+ * cairo_quartz_surface_create_for_cg_context:
  * @cgContext: the existing CGContext for which to create the surface
  * @width: width of the surface, in pixels
  * @height: height of the surface, in pixels
@@ -2303,7 +2314,7 @@ _cairo_quartz_surface_create_internal (CGContextRef cgContext,
  *
  * Return value: the newly created Cairo surface.
  *
- * Since: 1.4
+ * Since: 1.6
  **/
 
 cairo_surface_t *
@@ -2322,7 +2333,7 @@ cairo_quartz_surface_create_for_cg_context (CGContextRef cgContext,
 }
 
 /**
- * cairo_quartz_surface_create
+ * cairo_quartz_surface_create:
  * @format: format of pixels in the surface to create
  * @width: width of the surface, in pixels
  * @height: height of the surface, in pixels
@@ -2334,7 +2345,7 @@ cairo_quartz_surface_create_for_cg_context (CGContextRef cgContext,
  *
  * Return value: the newly created surface.
  *
- * Since: 1.4
+ * Since: 1.6
  **/
 cairo_surface_t *
 cairo_quartz_surface_create (cairo_format_t format,
@@ -2432,7 +2443,7 @@ cairo_quartz_surface_create (cairo_format_t format,
 }
 
 /**
- * cairo_quartz_surface_get_cg_context
+ * cairo_quartz_surface_get_cg_context:
  * @surface: the Cairo Quartz surface
  *
  * Returns the CGContextRef that the given Quartz surface is backed
@@ -2447,7 +2458,7 @@ cairo_quartz_surface_create (cairo_format_t format,
  *
  * Return value: the CGContextRef for the given surface.
  *
- * Since: 1.4
+ * Since: 1.6
  **/
 CGContextRef
 cairo_quartz_surface_get_cg_context (cairo_surface_t *surface)

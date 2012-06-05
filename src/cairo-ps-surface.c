@@ -67,11 +67,12 @@
 #include "cairo-default-context-private.h"
 #include "cairo-error-private.h"
 #include "cairo-image-surface-private.h"
+#include "cairo-list-inline.h"
 #include "cairo-scaled-font-subsets-private.h"
 #include "cairo-paginated-private.h"
 #include "cairo-recording-surface-private.h"
 #include "cairo-surface-clipper-private.h"
-#include "cairo-surface-snapshot-private.h"
+#include "cairo-surface-snapshot-inline.h"
 #include "cairo-surface-subsurface-private.h"
 #include "cairo-output-stream-private.h"
 #include "cairo-type3-glyph-surface-private.h"
@@ -104,14 +105,16 @@
  *
  * The PostScript surface is used to render cairo graphics to Adobe
  * PostScript files and is a multi-page vector surface backend.
- */
+ **/
 
 /**
  * CAIRO_HAS_PS_SURFACE:
  * 
  * Defined if the PostScript surface backend is available.
  * This macro can be used to conditionally compile backend-specific code.
- */
+ *
+ * Since: 1.2
+ **/
 
 typedef enum {
     CAIRO_PS_COMPRESS_NONE,
@@ -126,10 +129,6 @@ static cairo_bool_t
 _cairo_ps_surface_get_extents (void		       *abstract_surface,
 			       cairo_rectangle_int_t   *rectangle);
 
-static void
-_cairo_ps_surface_release_surface (cairo_ps_surface_t      *surface,
-				   cairo_surface_pattern_t *pattern);
-
 static const cairo_ps_level_t _cairo_ps_levels[] =
 {
     CAIRO_PS_LEVEL_2,
@@ -142,6 +141,12 @@ static const char * _cairo_ps_level_strings[CAIRO_PS_LEVEL_LAST] =
 {
     "PS Level 2",
     "PS Level 3"
+};
+
+static const char *_cairo_ps_supported_mime_types[] =
+{
+    CAIRO_MIME_TYPE_JPEG,
+    NULL
 };
 
 typedef struct _cairo_page_standard_media {
@@ -268,10 +273,8 @@ _cairo_ps_surface_emit_header (cairo_ps_surface_t *surface)
 
     if (surface->eps) {
 	_cairo_output_stream_printf (surface->final_stream,
-				     "/cairo_eps_state save def\n"
-				     "/dict_count countdictstack def\n"
-				     "/op_count count 1 sub def\n"
-				     "userdict begin\n");
+				     "save\n"
+				     "50 dict begin\n");
     } else {
 	_cairo_output_stream_printf (surface->final_stream,
 				     "/languagelevel where\n"
@@ -807,9 +810,7 @@ _cairo_ps_surface_emit_footer (cairo_ps_surface_t *surface)
 
     if (surface->eps) {
 	_cairo_output_stream_printf (surface->final_stream,
-				     "count op_count sub {pop} repeat\n"
-				     "countdictstack dict_count sub {end} repeat\n"
-				     "cairo_eps_state restore\n");
+				     "end restore\n");
     }
 
     _cairo_output_stream_printf (surface->final_stream,
@@ -1123,7 +1124,7 @@ cairo_ps_surface_create (const char		*filename,
  * occurs. You can use cairo_surface_status() to check for this.
  *
  * Since: 1.2
- */
+ **/
 cairo_surface_t *
 cairo_ps_surface_create_for_stream (cairo_write_func_t	write_func,
 				    void	       *closure,
@@ -1627,34 +1628,21 @@ _cairo_ps_surface_start_page (void *abstract_surface)
 }
 
 static cairo_int_status_t
-_cairo_ps_surface_end_page (cairo_ps_surface_t *surface)
-{
-    cairo_int_status_t status;
-
-    status = _cairo_pdf_operators_flush (&surface->pdf_operators);
-    if (unlikely (status))
-	return status;
-
-    if (surface->clipper.clip != NULL) {
-	_cairo_output_stream_printf (surface->stream, "Q Q\n");
-	_cairo_surface_clipper_reset (&surface->clipper);
-    } else
-	_cairo_output_stream_printf (surface->stream, "Q\n");
-
-    return CAIRO_STATUS_SUCCESS;
-}
-
-static cairo_int_status_t
 _cairo_ps_surface_show_page (void *abstract_surface)
 {
     cairo_ps_surface_t *surface = abstract_surface;
     cairo_int_status_t status;
 
-    status = _cairo_ps_surface_end_page (surface);
+    if (surface->clipper.clip != NULL)
+	_cairo_surface_clipper_reset (&surface->clipper);
+
+    status = _cairo_pdf_operators_flush (&surface->pdf_operators);
     if (unlikely (status))
 	return status;
 
-    _cairo_output_stream_printf (surface->stream, "showpage\n");
+    _cairo_output_stream_printf (surface->stream,
+				 "Q Q\n"
+				 "showpage\n");
 
     return CAIRO_STATUS_SUCCESS;
 }
@@ -1668,21 +1656,236 @@ color_is_gray (double red, double green, double blue)
 	    fabs (red - blue) < epsilon);
 }
 
-static cairo_int_status_t
-_cairo_ps_surface_analyze_surface_pattern_transparency (cairo_ps_surface_t      *surface,
-						       cairo_surface_pattern_t *pattern)
+/**
+ * _cairo_ps_surface_acquire_source_surface_from_pattern:
+ * @surface: the ps surface
+ * @pattern: A #cairo_pattern_t of type SURFACE or RASTER_SOURCE to use as the source
+ * @extents: extents of the operation that is using this source
+ * @width: returns width of surface
+ * @height: returns height of surface
+ * @x_offset: returns x offset of surface
+ * @y_offset: returns y offset of surface
+ * @surface: returns surface of type image surface or recording surface
+ * @image_extra: returns image extra for image type surface
+ *
+ * Acquire source surface or raster source pattern.
+ **/
+static cairo_status_t
+_cairo_ps_surface_acquire_source_surface_from_pattern (cairo_ps_surface_t           *surface,
+						       const cairo_pattern_t        *pattern,
+						       const cairo_rectangle_int_t  *extents,
+						       int                          *width,
+						       int                          *height,
+						       double                       *x_offset,
+						       double                       *y_offset,
+						       cairo_surface_t             **source_surface,
+						       void                        **image_extra)
 {
+    cairo_status_t          status;
     cairo_image_surface_t  *image;
-    void		   *image_extra;
+
+    *x_offset = *y_offset = 0;
+    switch (pattern->type) {
+    case CAIRO_PATTERN_TYPE_SURFACE: {
+	cairo_surface_t *surf = ((cairo_surface_pattern_t *) pattern)->surface;
+
+	if (surf->type == CAIRO_SURFACE_TYPE_RECORDING) {
+	    if (surf->backend->type == CAIRO_SURFACE_TYPE_SUBSURFACE) {
+		cairo_surface_subsurface_t *sub = (cairo_surface_subsurface_t *) surf;
+
+		*width  = sub->extents.width;
+		*height = sub->extents.height;
+	    } else {
+		cairo_surface_t *free_me = NULL;
+		cairo_recording_surface_t *recording_surface;
+		cairo_box_t bbox;
+		cairo_rectangle_int_t extents;
+
+		recording_surface = (cairo_recording_surface_t *) surf;
+		if (_cairo_surface_is_snapshot (&recording_surface->base)) {
+		    free_me = _cairo_surface_snapshot_get_target (&recording_surface->base);
+		    recording_surface = (cairo_recording_surface_t *) free_me;
+		}
+
+		status = _cairo_recording_surface_get_bbox (recording_surface, &bbox, NULL);
+		cairo_surface_destroy (free_me);
+		if (unlikely (status))
+		    return status;
+
+		_cairo_box_round_to_rectangle (&bbox, &extents);
+		*width  = extents.width;
+		*height = extents.height;
+	    }
+	    *source_surface = surf;
+
+	    return CAIRO_STATUS_SUCCESS;
+	} else {
+	    status =  _cairo_surface_acquire_source_image (surf, &image, image_extra);
+	    if (unlikely (status))
+		return status;
+	}
+    } break;
+
+    case CAIRO_PATTERN_TYPE_RASTER_SOURCE: {
+	cairo_surface_t *surf;
+	cairo_box_t box;
+	cairo_rectangle_int_t rect;
+
+	/* get the operation extents in pattern space */
+	_cairo_box_from_rectangle (&box, extents);
+	_cairo_matrix_transform_bounding_box_fixed (&pattern->matrix, &box, NULL);
+	_cairo_box_round_to_rectangle (&box, &rect);
+	surf = _cairo_raster_source_pattern_acquire (pattern, &surface->base, &rect);
+	if (!surf)
+	    return CAIRO_INT_STATUS_UNSUPPORTED;
+	assert (cairo_surface_get_type (surf) == CAIRO_SURFACE_TYPE_IMAGE);
+	image = (cairo_image_surface_t *) surf;
+    } break;
+
+    case CAIRO_PATTERN_TYPE_SOLID:
+    case CAIRO_PATTERN_TYPE_LINEAR:
+    case CAIRO_PATTERN_TYPE_RADIAL:
+    case CAIRO_PATTERN_TYPE_MESH:
+    default:
+	ASSERT_NOT_REACHED;
+	break;
+    }
+
+    *width = image->width;
+    *height = image->height;
+    *source_surface = &image->base;
+    return CAIRO_STATUS_SUCCESS;
+}
+
+static void
+_cairo_ps_surface_release_source_surface_from_pattern (cairo_ps_surface_t           *surface,
+						       const cairo_pattern_t        *pattern,
+						       cairo_surface_t              *source,
+						       void                         *image_extra)
+{
+    switch (pattern->type) {
+    case CAIRO_PATTERN_TYPE_SURFACE: {
+	cairo_surface_pattern_t *surf_pat = (cairo_surface_pattern_t *) pattern;
+	if (surf_pat->surface->type != CAIRO_SURFACE_TYPE_RECORDING) {
+	    cairo_image_surface_t *image  = (cairo_image_surface_t *) source;
+	    _cairo_surface_release_source_image (surf_pat->surface, image, image_extra);
+	}
+    } break;
+
+    case CAIRO_PATTERN_TYPE_RASTER_SOURCE:
+	_cairo_raster_source_pattern_release (pattern, source);
+	break;
+
+    case CAIRO_PATTERN_TYPE_SOLID:
+    case CAIRO_PATTERN_TYPE_LINEAR:
+    case CAIRO_PATTERN_TYPE_RADIAL:
+    case CAIRO_PATTERN_TYPE_MESH:
+    default:
+
+	ASSERT_NOT_REACHED;
+	break;
+    }
+}
+
+/**
+ * _cairo_ps_surface_create_padded_image_from_image:
+ * @surface: the ps surface
+ * @source: The source image
+ * @extents: extents of the operation that is using this source
+ * @width: returns width of padded image
+ * @height: returns height of padded image
+ * @x_offset: returns x offset of padded image
+ * @y_offset: returns y offset of padded image
+ * @image: returns the padded image or NULL if padding not required to fill @extents
+ *
+ * Creates a padded image if the source image does not fill the extents.
+ **/
+static cairo_status_t
+_cairo_ps_surface_create_padded_image_from_image (cairo_ps_surface_t           *surface,
+						  cairo_image_surface_t        *source,
+						  const cairo_matrix_t         *source_matrix,
+						  const cairo_rectangle_int_t  *extents,
+						  int                          *width,
+						  int                          *height,
+						  double                       *x_offset,
+						  double                       *y_offset,
+						  cairo_image_surface_t       **image)
+{
+    cairo_box_t box;
+    cairo_rectangle_int_t rect;
+    cairo_surface_t	   *pad_image;
+    cairo_surface_pattern_t pad_pattern;
+    int w, h;
+    cairo_int_status_t      status;
+
+    /* get the operation extents in pattern space */
+    _cairo_box_from_rectangle (&box, extents);
+    _cairo_matrix_transform_bounding_box_fixed (source_matrix, &box, NULL);
+    _cairo_box_round_to_rectangle (&box, &rect);
+
+    /* Check if image needs padding to fill extents. */
+    w = source->width;
+    h = source->height;
+    if (_cairo_fixed_integer_ceil(box.p1.x) < 0 ||
+	_cairo_fixed_integer_ceil(box.p1.y) < 0 ||
+	_cairo_fixed_integer_floor(box.p2.y) > w ||
+	_cairo_fixed_integer_floor(box.p2.y) > h)
+    {
+	pad_image =
+	    _cairo_image_surface_create_with_pixman_format (NULL,
+							    source->pixman_format,
+							    rect.width, rect.height,
+							    0);
+	if (pad_image->status)
+	    return pad_image->status;
+
+	_cairo_pattern_init_for_surface (&pad_pattern, &source->base);
+	cairo_matrix_init_translate (&pad_pattern.base.matrix, rect.x, rect.y);
+	pad_pattern.base.extend = CAIRO_EXTEND_PAD;
+	status = _cairo_surface_paint (pad_image,
+				       CAIRO_OPERATOR_SOURCE,
+				       &pad_pattern.base,
+				       NULL);
+	_cairo_pattern_fini (&pad_pattern.base);
+	*image = (cairo_image_surface_t *) pad_image;
+	*width = rect.width;
+	*height = rect.height;
+	*x_offset = rect.x;
+	*y_offset = rect.y;
+    } else {
+	*image = NULL;
+	status = CAIRO_STATUS_SUCCESS;
+    }
+
+    return status;
+}
+
+static cairo_int_status_t
+_cairo_ps_surface_analyze_surface_pattern_transparency (cairo_ps_surface_t            *surface,
+							const cairo_pattern_t         *pattern,
+							const cairo_rectangle_int_t   *extents)
+{
+    int width, height;
+    double x_offset, y_offset;
+    cairo_surface_t *source;
+    cairo_image_surface_t *image;
+    void *image_extra;
     cairo_int_status_t      status;
     cairo_image_transparency_t transparency;
 
-    status = _cairo_surface_acquire_source_image (pattern->surface,
-						  &image,
-						  &image_extra);
+    status = _cairo_ps_surface_acquire_source_surface_from_pattern (surface,
+								    pattern,
+								    extents,
+								    &width,
+								    &height,
+								    &x_offset,
+								    &y_offset,
+								    &source,
+								    &image_extra);
     if (unlikely (status))
 	return status;
 
+    image = (cairo_image_surface_t *) source;
     if (image->base.status)
 	return image->base.status;
 
@@ -1709,7 +1912,7 @@ _cairo_ps_surface_analyze_surface_pattern_transparency (cairo_ps_surface_t      
 	ASSERT_NOT_REACHED;
     }
 
-    _cairo_surface_release_source_image (pattern->surface, image, image_extra);
+    _cairo_ps_surface_release_source_surface_from_pattern (surface, pattern, source, image_extra);
 
     return status;
 }
@@ -1770,6 +1973,9 @@ pattern_supported (cairo_ps_surface_t *surface, const cairo_pattern_t *pattern)
     case CAIRO_PATTERN_TYPE_SURFACE:
 	return surface_pattern_supported ((cairo_surface_pattern_t *) pattern);
 
+    case CAIRO_PATTERN_TYPE_RASTER_SOURCE:
+	return TRUE;
+
     default:
 	ASSERT_NOT_REACHED;
 	return FALSE;
@@ -1777,7 +1983,9 @@ pattern_supported (cairo_ps_surface_t *surface, const cairo_pattern_t *pattern)
 }
 
 static cairo_bool_t
-mask_supported (cairo_ps_surface_t *surface, const cairo_pattern_t *mask)
+mask_supported (cairo_ps_surface_t *surface,
+		const cairo_pattern_t *mask,
+		const cairo_rectangle_int_t *extents)
 {
     if (surface->ps_level == CAIRO_PS_LEVEL_2)
 	return FALSE;
@@ -1786,7 +1994,7 @@ mask_supported (cairo_ps_surface_t *surface, const cairo_pattern_t *mask)
 	cairo_surface_pattern_t *surface_pattern = (cairo_surface_pattern_t *) mask;
 	if (surface_pattern->surface->type == CAIRO_SURFACE_TYPE_IMAGE) {
 	    /* check if mask if opaque or bilevel alpha */
-	    if (_cairo_ps_surface_analyze_surface_pattern_transparency (surface, surface_pattern) == CAIRO_INT_STATUS_SUCCESS) {
+	    if (_cairo_ps_surface_analyze_surface_pattern_transparency (surface, mask, extents) == CAIRO_INT_STATUS_SUCCESS) {
 		surface->ps_level_used = CAIRO_PS_LEVEL_3;
 		return TRUE;
 	    }
@@ -1818,7 +2026,7 @@ _cairo_ps_surface_analyze_operation (cairo_ps_surface_t    *surface,
 	return CAIRO_INT_STATUS_UNSUPPORTED;
 
     /* Mask is only supported when the mask is an image with opaque or bilevel alpha. */
-    if (mask && !mask_supported (surface, mask))
+    if (mask && !mask_supported (surface, mask, extents))
 	return CAIRO_INT_STATUS_UNSUPPORTED;
 
     if (pattern->type == CAIRO_PATTERN_TYPE_SURFACE) {
@@ -1848,12 +2056,8 @@ _cairo_ps_surface_analyze_operation (cairo_ps_surface_t    *surface,
      * render stage and we blend the transparency into the white
      * background to convert the pattern to opaque.
      */
-    if (pattern->type == CAIRO_PATTERN_TYPE_SURFACE) {
-	cairo_surface_pattern_t *surface_pattern = (cairo_surface_pattern_t *) pattern;
-
-	return _cairo_ps_surface_analyze_surface_pattern_transparency (surface,
-								       surface_pattern);
-    }
+    if (pattern->type == CAIRO_PATTERN_TYPE_SURFACE || pattern->type == CAIRO_PATTERN_TYPE_RASTER_SOURCE)
+	return _cairo_ps_surface_analyze_surface_pattern_transparency (surface, pattern, extents);
 
     /* Patterns whose drawn part is opaque are directly supported;
        those whose drawn part is partially transparent can be
@@ -2152,7 +2356,7 @@ _cairo_ps_surface_emit_base85_string (cairo_ps_surface_t    *surface,
 
 static cairo_status_t
 _cairo_ps_surface_emit_image (cairo_ps_surface_t    *surface,
-			      cairo_image_surface_t *image,
+			      cairo_image_surface_t *image_surf,
 			      cairo_operator_t	     op,
 			      cairo_filter_t         filter,
 			      cairo_bool_t           stencil_mask)
@@ -2160,7 +2364,7 @@ _cairo_ps_surface_emit_image (cairo_ps_surface_t    *surface,
     cairo_status_t status;
     unsigned char *data;
     unsigned long data_size;
-    cairo_image_surface_t *ps_image = image;
+    cairo_image_surface_t *ps_image;
     int x, y, i, a;
     cairo_image_transparency_t transparency;
     cairo_bool_t use_mask;
@@ -2171,9 +2375,38 @@ _cairo_ps_surface_emit_image (cairo_ps_surface_t    *surface,
     const char *interpolate;
     cairo_ps_compress_t compress;
     const char *compress_filter;
+    cairo_image_surface_t *image;
 
-    if (image->base.status)
-	return image->base.status;
+    if (image_surf->base.status)
+	return image_surf->base.status;
+
+    image  = image_surf;
+    if (image->format != CAIRO_FORMAT_RGB24 &&
+	image->format != CAIRO_FORMAT_ARGB32 &&
+	image->format != CAIRO_FORMAT_A8 &&
+	image->format != CAIRO_FORMAT_A1)
+    {
+	cairo_surface_t *surf;
+	cairo_surface_pattern_t pattern;
+
+	surf = _cairo_image_surface_create_with_content (cairo_surface_get_content (&image_surf->base),
+							 image_surf->width,
+							 image_surf->height);
+	image = (cairo_image_surface_t *) surf;
+	if (surf->status) {
+	    status = surf->status;
+	    goto bail0;
+	}
+
+	_cairo_pattern_init_for_surface (&pattern, &image_surf->base);
+	status = _cairo_surface_paint (surf,
+				       CAIRO_OPERATOR_SOURCE, &pattern.base,
+				       NULL);
+        _cairo_pattern_fini (&pattern.base);
+        if (unlikely (status))
+            goto bail0;
+    }
+    ps_image = image;
 
     switch (filter) {
     default:
@@ -2496,6 +2729,10 @@ bail1:
     if (!use_mask && ps_image != image)
 	cairo_surface_destroy (&ps_image->base);
 
+bail0:
+    if (image != image_surf)
+	cairo_surface_destroy (&image->base);
+
     return status;
 }
 
@@ -2509,6 +2746,8 @@ _cairo_ps_surface_emit_jpeg_image (cairo_ps_surface_t    *surface,
     const unsigned char *mime_data;
     unsigned long mime_data_length;
     cairo_image_info_t info;
+    const char *colorspace;
+    const char *decode;
 
     cairo_surface_get_mime_data (source, CAIRO_MIME_TYPE_JPEG,
 				 &mime_data, &mime_data_length);
@@ -2521,8 +2760,22 @@ _cairo_ps_surface_emit_jpeg_image (cairo_ps_surface_t    *surface,
     if (unlikely (status))
 	return status;
 
-    if (info.num_components != 1 && info.num_components != 3)
-	return CAIRO_INT_STATUS_UNSUPPORTED;
+    switch (info.num_components) {
+	case 1:
+	    colorspace = "/DeviceGray";
+	    decode = "0 1";
+	    break;
+	case 3:
+	    colorspace = "/DeviceRGB";
+	    decode =  "0 1 0 1 0 1";
+	    break;
+	case 4:
+	    colorspace = "/DeviceCMYK";
+	    decode =  "0 1 0 1 0 1 0 1";
+	    break;
+	default:
+	    return CAIRO_INT_STATUS_UNSUPPORTED;
+    }
 
     if (surface->use_string_datasource) {
 	/* Emit the image data as a base85-encoded string which will
@@ -2545,18 +2798,18 @@ _cairo_ps_surface_emit_jpeg_image (cairo_ps_surface_t    *surface,
     }
 
     _cairo_output_stream_printf (surface->stream,
-				 "/%s setcolorspace\n"
+				 "%s setcolorspace\n"
 				 "8 dict dup begin\n"
 				 "  /ImageType 1 def\n"
 				 "  /Width %d def\n"
 				 "  /Height %d def\n"
 				 "  /BitsPerComponent %d def\n"
 				 "  /Decode [ %s ] def\n",
-				 info.num_components == 1 ? "DeviceGray" : "DeviceRGB",
+				 colorspace,
 				 info.width,
 				 info.height,
 				 info.bits_per_component,
-                                 info.num_components == 1 ? "0 1" : "0 1 0 1 0 1");
+                                 decode);
 
     if (surface->use_string_datasource) {
 	_cairo_output_stream_printf (surface->stream,
@@ -2598,6 +2851,7 @@ _cairo_ps_surface_emit_recording_surface (cairo_ps_surface_t *surface,
     cairo_matrix_t old_cairo_to_ps;
     cairo_content_t old_content;
     cairo_rectangle_int_t old_page_bbox;
+    cairo_surface_t *free_me = NULL;
     cairo_surface_clipper_t old_clipper;
     cairo_box_t bbox;
     cairo_int_status_t status;
@@ -2612,14 +2866,14 @@ _cairo_ps_surface_emit_recording_surface (cairo_ps_surface_t *surface,
 				 _cairo_ps_surface_clipper_intersect_clip_path);
 
     if (_cairo_surface_is_snapshot (recording_surface))
-	recording_surface = _cairo_surface_snapshot_get_target (recording_surface);
+	free_me = recording_surface = _cairo_surface_snapshot_get_target (recording_surface);
 
     status =
 	_cairo_recording_surface_get_bbox ((cairo_recording_surface_t *) recording_surface,
 					   &bbox,
 					   NULL);
     if (unlikely (status))
-	return status;
+	goto err;
 
 #if DEBUG_PS
     _cairo_output_stream_printf (surface->stream,
@@ -2657,11 +2911,11 @@ _cairo_ps_surface_emit_recording_surface (cairo_ps_surface_t *surface,
 						     CAIRO_RECORDING_REGION_NATIVE);
     assert (status != CAIRO_INT_STATUS_UNSUPPORTED);
     if (unlikely (status))
-	return status;
+	goto err;
 
     status = _cairo_pdf_operators_flush (&surface->pdf_operators);
     if (unlikely (status))
-	return status;
+	goto err;
 
     _cairo_output_stream_printf (surface->stream, "  Q\n");
 
@@ -2678,7 +2932,9 @@ _cairo_ps_surface_emit_recording_surface (cairo_ps_surface_t *surface,
     _cairo_pdf_operators_set_cairo_to_pdf_matrix (&surface->pdf_operators,
 						  &surface->cairo_to_ps);
 
-    return CAIRO_STATUS_SUCCESS;
+err:
+    cairo_surface_destroy (free_me);
+    return status;
 }
 
 static cairo_int_status_t
@@ -2691,6 +2947,7 @@ _cairo_ps_surface_emit_recording_subsurface (cairo_ps_surface_t *surface,
     cairo_content_t old_content;
     cairo_rectangle_int_t old_page_bbox;
     cairo_surface_clipper_t old_clipper;
+    cairo_surface_t *free_me = NULL;
     cairo_int_status_t status;
 
     old_content = surface->content;
@@ -2721,7 +2978,7 @@ _cairo_ps_surface_emit_recording_subsurface (cairo_ps_surface_t *surface,
     _cairo_output_stream_printf (surface->stream, "  q\n");
 
     if (_cairo_surface_is_snapshot (recording_surface))
-	recording_surface = _cairo_surface_snapshot_get_target (recording_surface);
+	free_me = recording_surface = _cairo_surface_snapshot_get_target (recording_surface);
 
     if (recording_surface->content == CAIRO_CONTENT_COLOR) {
 	surface->content = CAIRO_CONTENT_COLOR;
@@ -2739,11 +2996,11 @@ _cairo_ps_surface_emit_recording_subsurface (cairo_ps_surface_t *surface,
 						     CAIRO_RECORDING_REGION_NATIVE);
     assert (status != CAIRO_INT_STATUS_UNSUPPORTED);
     if (unlikely (status))
-	return status;
+	goto err;
 
     status = _cairo_pdf_operators_flush (&surface->pdf_operators);
     if (unlikely (status))
-	return status;
+	goto err;
 
     _cairo_output_stream_printf (surface->stream, "  Q\n");
 
@@ -2760,7 +3017,9 @@ _cairo_ps_surface_emit_recording_subsurface (cairo_ps_surface_t *surface,
     _cairo_pdf_operators_set_cairo_to_pdf_matrix (&surface->pdf_operators,
 						  &surface->cairo_to_ps);
 
-    return CAIRO_STATUS_SUCCESS;
+err:
+    cairo_surface_destroy (free_me);
+    return status;
 }
 
 static void
@@ -2806,109 +3065,9 @@ _cairo_ps_surface_emit_solid_pattern (cairo_ps_surface_t    *surface,
 }
 
 static cairo_status_t
-_cairo_ps_surface_acquire_surface (cairo_ps_surface_t      *surface,
-				   cairo_surface_pattern_t *pattern,
-				   cairo_rectangle_int_t   *extents,
-				   int                     *width,
-				   int                     *height,
-				   int			   *origin_x,
-				   int			   *origin_y)
-{
-    cairo_status_t          status;
-    cairo_surface_t	   *pad_image;
-    int x = 0;
-    int y = 0;
-
-    surface->acquired_image = NULL;
-    surface->image = NULL;
-
-    if (pattern->surface->type == CAIRO_SURFACE_TYPE_RECORDING) {
-	if (pattern->surface->backend->type == CAIRO_SURFACE_TYPE_SUBSURFACE) {
-	    cairo_surface_subsurface_t *sub = (cairo_surface_subsurface_t *) pattern->surface;
-
-	    *width  = sub->extents.width;
-	    *height = sub->extents.height;
-	} else {
-	    cairo_recording_surface_t *recording_surface;
-	    cairo_box_t bbox;
-	    cairo_rectangle_int_t extents;
-
-	    recording_surface = (cairo_recording_surface_t *) pattern->surface;
-	    if (_cairo_surface_is_snapshot (&recording_surface->base))
-		recording_surface = (cairo_recording_surface_t *)
-		    _cairo_surface_snapshot_get_target (&recording_surface->base);
-
-	    status = _cairo_recording_surface_get_bbox (recording_surface, &bbox, NULL);
-	    if (unlikely (status))
-		return status;
-
-	    _cairo_box_round_to_rectangle (&bbox, &extents);
-	    *width  = extents.width;
-	    *height = extents.height;
-	}
-	return CAIRO_STATUS_SUCCESS;
-    } else {
-	status = _cairo_surface_acquire_source_image (pattern->surface,
-						      &surface->acquired_image,
-						      &surface->image_extra);
-	if (unlikely (status))
-	    return status;
-
-	pad_image = &surface->acquired_image->base;
-	if (cairo_pattern_get_extend (&pattern->base) == CAIRO_EXTEND_PAD) {
-	    cairo_box_t box;
-	    cairo_rectangle_int_t rect;
-	    cairo_surface_pattern_t pad_pattern;
-
-	    /* get the operation extents in pattern space */
-	    _cairo_box_from_rectangle (&box, extents);
-	    _cairo_matrix_transform_bounding_box_fixed (&pattern->base.matrix, &box, NULL);
-	    _cairo_box_round_to_rectangle (&box, &rect);
-	    x = -rect.x;
-	    y = -rect.y;
-
-	    pad_image =
-		_cairo_image_surface_create_with_pixman_format (NULL,
-								surface->acquired_image->pixman_format,
-								rect.width, rect.height,
-								0);
-	    if (pad_image->status) {
-		status = pad_image->status;
-		goto BAIL;
-	    }
-
-	    _cairo_pattern_init_for_surface (&pad_pattern, &surface->acquired_image->base);
-	    cairo_matrix_init_translate (&pad_pattern.base.matrix, -x, -y);
-	    pad_pattern.base.extend = CAIRO_EXTEND_PAD;
-	    status = _cairo_surface_paint (pad_image,
-					   CAIRO_OPERATOR_SOURCE,
-					   &pad_pattern.base,
-					   NULL);
-	    _cairo_pattern_fini (&pad_pattern.base);
-	    if (unlikely (status)) {
-		if (pad_image != &surface->acquired_image->base)
-		    cairo_surface_destroy (pad_image);
-
-		goto BAIL;
-	    }
-	}
-
-	surface->image = (cairo_image_surface_t *) pad_image;
-	*width = surface->image->width;
-	*height = surface->image->height;
-	*origin_x = x;
-	*origin_y = y;
-	return CAIRO_STATUS_SUCCESS;
-    }
-
-BAIL:
-    _cairo_ps_surface_release_surface (surface, pattern);
-    return status;
-}
-
-static cairo_status_t
 _cairo_ps_surface_emit_surface (cairo_ps_surface_t      *surface,
-				cairo_surface_pattern_t *pattern,
+				cairo_pattern_t         *source_pattern,
+				cairo_surface_t         *source_surface,
 				cairo_operator_t	 op,
 				int                      width,
 				int                      height,
@@ -2916,46 +3075,29 @@ _cairo_ps_surface_emit_surface (cairo_ps_surface_t      *surface,
 {
     cairo_int_status_t status;
 
-    if (pattern->surface->type == CAIRO_SURFACE_TYPE_RECORDING) {
-	cairo_surface_t *source = pattern->surface;
-
-	if (source->backend->type == CAIRO_SURFACE_TYPE_SUBSURFACE) {
-	    cairo_surface_subsurface_t *sub = (cairo_surface_subsurface_t *) source;
+    if (source_surface->type == CAIRO_SURFACE_TYPE_RECORDING) {
+	if (source_surface->backend->type == CAIRO_SURFACE_TYPE_SUBSURFACE) {
+	    cairo_surface_subsurface_t *sub = (cairo_surface_subsurface_t *) source_surface;
 	    status = _cairo_ps_surface_emit_recording_subsurface (surface, sub->target, &sub->extents);
 	} else {
-	    status = _cairo_ps_surface_emit_recording_surface (surface, source);
+	    status = _cairo_ps_surface_emit_recording_surface (surface, source_surface);
 	}
     } else {
-	if (pattern->base.extend != CAIRO_EXTEND_PAD) {
-	    status = _cairo_ps_surface_emit_jpeg_image (surface, pattern->surface,
+	cairo_image_surface_t *image = (cairo_image_surface_t *) source_surface;
+	if (source_pattern->extend != CAIRO_EXTEND_PAD) {
+	    status = _cairo_ps_surface_emit_jpeg_image (surface, source_surface,
 							width, height);
 	    if (status != CAIRO_INT_STATUS_UNSUPPORTED)
 		return status;
 	}
 
-	status = _cairo_ps_surface_emit_image (surface, surface->image,
-					       op, pattern->base.filter, stencil_mask);
+	status = _cairo_ps_surface_emit_image (surface, image,
+					       op, source_pattern->filter, stencil_mask);
     }
 
     return status;
 }
 
-static void
-_cairo_ps_surface_release_surface (cairo_ps_surface_t      *surface,
-				   cairo_surface_pattern_t *pattern)
-{
-    if (surface->image != surface->acquired_image)
-	cairo_surface_destroy (&surface->image->base);
-
-    if (pattern->surface->type != CAIRO_SURFACE_TYPE_RECORDING) {
-	_cairo_surface_release_source_image (pattern->surface,
-					     surface->acquired_image,
-					     surface->image_extra);
-    }
-
-    surface->acquired_image = NULL;
-    surface->image = NULL;
-}
 
 static void
 _path_fixed_init_rectangle (cairo_path_fixed_t *path,
@@ -2987,30 +3129,50 @@ _path_fixed_init_rectangle (cairo_path_fixed_t *path,
 }
 
 static cairo_status_t
-_cairo_ps_surface_paint_surface (cairo_ps_surface_t      *surface,
-				 cairo_surface_pattern_t *pattern,
-				 cairo_rectangle_int_t   *extents,
-				 cairo_operator_t	  op,
-				 cairo_bool_t             stencil_mask)
+_cairo_ps_surface_paint_surface (cairo_ps_surface_t     *surface,
+				 cairo_pattern_t        *pattern,
+				 cairo_rectangle_int_t  *extents,
+				 cairo_operator_t	 op,
+				 cairo_bool_t            stencil_mask)
 {
     cairo_status_t status;
     int width, height;
     cairo_matrix_t cairo_p2d, ps_p2d;
     cairo_path_fixed_t path;
-    int origin_x = 0;
-    int origin_y = 0;
+    double x_offset, y_offset;
+    cairo_surface_t *source;
+    cairo_image_surface_t *image = NULL;
+    void *image_extra;
 
     status = _cairo_pdf_operators_flush (&surface->pdf_operators);
     if (unlikely (status))
 	return status;
 
-    status = _cairo_ps_surface_acquire_surface (surface,
-						pattern,
-						extents,
-						&width, &height,
-						&origin_x, &origin_y);
+    status = _cairo_ps_surface_acquire_source_surface_from_pattern (surface,
+								    pattern,
+								    extents,
+								    &width, &height,
+								    &x_offset, &y_offset,
+								    &source,
+								    &image_extra);
     if (unlikely (status))
 	return status;
+
+    if (pattern->extend == CAIRO_EXTEND_PAD) {
+	cairo_image_surface_t *img;
+
+	assert (source->type == CAIRO_SURFACE_TYPE_IMAGE);
+	img = (cairo_image_surface_t *) source;
+	status = _cairo_ps_surface_create_padded_image_from_image (surface,
+								   img,
+								   &pattern->matrix,
+								   extents,
+								   &width, &height,
+								   &x_offset, &y_offset,
+								   &image);
+	if (unlikely (status))
+	    goto release_source;
+    }
 
     _path_fixed_init_rectangle (&path, extents);
     status = _cairo_pdf_operators_clip (&surface->pdf_operators,
@@ -3018,20 +3180,32 @@ _cairo_ps_surface_paint_surface (cairo_ps_surface_t      *surface,
 					CAIRO_FILL_RULE_WINDING);
     _cairo_path_fixed_fini (&path);
     if (unlikely (status))
-	return status;
+	goto release_source;
 
-    cairo_p2d = pattern->base.matrix;
+    cairo_p2d = pattern->matrix;
 
     if (surface->paginated_mode == CAIRO_PAGINATED_MODE_FALLBACK) {
-	double scale = cairo_p2d.xx;
+	double x_scale = cairo_p2d.xx;
+	double y_scale = cairo_p2d.yy;
 
 	_cairo_output_stream_printf (surface->stream,
-				     "%% Fallback Image: x=%f y=%f w=%d h=%d res=%fppi size=%ld\n",
-				     -cairo_p2d.x0/scale,
-				     -cairo_p2d.y0/scale,
-				     (int)(width/scale),
-				     (int)(height/scale),
-				     scale*72,
+				     "%% Fallback Image: x=%f y=%f w=%d h=%d ",
+				     -cairo_p2d.x0/x_scale,
+				     -cairo_p2d.y0/y_scale,
+				     (int)(width/x_scale),
+				     (int)(height/y_scale));
+	if (x_scale == y_scale) {
+	    _cairo_output_stream_printf (surface->stream,
+					 "res=%fppi ",
+					 x_scale*72);
+	} else {
+	    _cairo_output_stream_printf (surface->stream,
+					 "res=%fx%fppi ",
+					 x_scale*72,
+					 y_scale*72);
+	}
+	_cairo_output_stream_printf (surface->stream,
+				     "size=%ld\n",
 				     (long)width*height*3);
     } else {
 	if (op == CAIRO_OPERATOR_SOURCE) {
@@ -3049,7 +3223,7 @@ _cairo_ps_surface_paint_surface (cairo_ps_surface_t      *surface,
 
     ps_p2d = surface->cairo_to_ps;
     cairo_matrix_multiply (&ps_p2d, &cairo_p2d, &ps_p2d);
-    cairo_matrix_translate (&ps_p2d, -origin_x, -origin_y);
+    cairo_matrix_translate (&ps_p2d, x_offset, y_offset);
     cairo_matrix_translate (&ps_p2d, 0.0, height);
     cairo_matrix_scale (&ps_p2d, 1.0, -1.0);
 
@@ -3061,15 +3235,25 @@ _cairo_ps_surface_paint_surface (cairo_ps_surface_t      *surface,
 				     ps_p2d.x0, ps_p2d.y0);
     }
 
-    status = _cairo_ps_surface_emit_surface (surface, pattern, op, width, height, stencil_mask);
-    _cairo_ps_surface_release_surface (surface, pattern);
+    status = _cairo_ps_surface_emit_surface (surface,
+					     pattern,
+					     image ? &image->base : source,
+					     op,
+					     width, height,
+					     stencil_mask);
+
+  release_source:
+    if (image)
+	cairo_surface_destroy (&image->base);
+
+    _cairo_ps_surface_release_source_surface_from_pattern (surface, pattern, source, image_extra);
 
     return status;
 }
 
 static cairo_status_t
 _cairo_ps_surface_emit_surface_pattern (cairo_ps_surface_t      *surface,
-					cairo_surface_pattern_t *pattern,
+					cairo_pattern_t         *pattern,
 					cairo_rectangle_int_t   *extents,
 					cairo_operator_t	 op)
 {
@@ -3079,23 +3263,45 @@ _cairo_ps_surface_emit_surface_pattern (cairo_ps_surface_t      *surface,
     double xstep, ystep;
     cairo_matrix_t cairo_p2d, ps_p2d;
     cairo_bool_t old_use_string_datasource;
-    int origin_x = 0;
-    int origin_y = 0;
+    double x_offset, y_offset;
+    cairo_surface_t *source;
+    cairo_image_surface_t *image = NULL;
+    void *image_extra;
 
-    cairo_p2d = pattern->base.matrix;
+    cairo_p2d = pattern->matrix;
     status = cairo_matrix_invert (&cairo_p2d);
     /* cairo_pattern_set_matrix ensures the matrix is invertible */
     assert (status == CAIRO_STATUS_SUCCESS);
 
-    status = _cairo_ps_surface_acquire_surface (surface,
-						pattern,
-						extents,
-						&pattern_width, &pattern_height,
-						&origin_x, &origin_y);
+    status = _cairo_ps_surface_acquire_source_surface_from_pattern (surface,
+								    pattern,
+								    extents,
+								    &pattern_width, &pattern_height,
+								    &x_offset, &y_offset,
+								    &source,
+								    &image_extra);
     if (unlikely (status))
 	return status;
 
-    switch (pattern->base.extend) {
+    if (pattern->extend == CAIRO_EXTEND_PAD) {
+	cairo_image_surface_t *img;
+
+	assert (source->type == CAIRO_SURFACE_TYPE_IMAGE);
+	img = (cairo_image_surface_t *) source;
+	status = _cairo_ps_surface_create_padded_image_from_image (surface,
+								   img,
+								   &pattern->matrix,
+								   extents,
+								   &pattern_width, &pattern_height,
+								   &x_offset, &y_offset,
+								   &image);
+	if (unlikely (status))
+	    goto release_source;
+    }
+    if (unlikely (status))
+	goto release_source;
+
+    switch (pattern->extend) {
     case CAIRO_EXTEND_PAD:
     case CAIRO_EXTEND_NONE:
     {
@@ -3113,7 +3319,7 @@ _cairo_ps_surface_emit_surface_pattern (cairo_ps_surface_t      *surface,
 	 */
 	double x1 = 0.0, y1 = 0.0;
 	double x2 = surface->width, y2 = surface->height;
-	_cairo_matrix_transform_bounding_box (&pattern->base.matrix,
+	_cairo_matrix_transform_bounding_box (&pattern->matrix,
 					      &x1, &y1, &x2, &y2,
 					      NULL);
 
@@ -3152,10 +3358,13 @@ _cairo_ps_surface_emit_surface_pattern (cairo_ps_surface_t      *surface,
 				     surface->content == CAIRO_CONTENT_COLOR ? 0 : 1,
 				     xstep, ystep);
     }
-    status = _cairo_ps_surface_emit_surface (surface, pattern, op,
+    status = _cairo_ps_surface_emit_surface (surface,
+					     pattern,
+					     image ? &image->base : source,
+					     op,
 					     pattern_width, pattern_height, FALSE);
     if (unlikely (status))
-	return status;
+	goto release_source;
 
     surface->use_string_datasource = old_use_string_datasource;
     _cairo_output_stream_printf (surface->stream,
@@ -3169,7 +3378,7 @@ _cairo_ps_surface_emit_surface_pattern (cairo_ps_surface_t      *surface,
 				 "   /XStep %f /YStep %f\n",
 				 xstep, ystep);
 
-    if (pattern->base.extend == CAIRO_EXTEND_REFLECT) {
+    if (pattern->extend == CAIRO_EXTEND_REFLECT) {
 	_cairo_output_stream_printf (surface->stream,
 				     "   /BBox [0 0 %d %d]\n"
 				     "   /PaintProc {\n"
@@ -3200,7 +3409,7 @@ _cairo_ps_surface_emit_surface_pattern (cairo_ps_surface_t      *surface,
     _cairo_output_stream_printf (surface->stream,
 				 ">>\n");
 
-    cairo_p2d = pattern->base.matrix;
+    cairo_p2d = pattern->matrix;
     status = cairo_matrix_invert (&cairo_p2d);
     /* cairo_pattern_set_matrix ensures the matrix is invertible */
     assert (status == CAIRO_STATUS_SUCCESS);
@@ -3220,7 +3429,13 @@ _cairo_ps_surface_emit_surface_pattern (cairo_ps_surface_t      *surface,
     _cairo_output_stream_printf (surface->stream,
 				 "makepattern setpattern\n");
 
-    return CAIRO_STATUS_SUCCESS;
+  release_source:
+    if (image)
+	cairo_surface_destroy (&image->base);
+
+    _cairo_ps_surface_release_source_surface_from_pattern (surface, pattern, source, image_extra);
+
+    return status;
 }
 
 typedef struct _cairo_ps_color_stop {
@@ -3435,7 +3650,8 @@ _cairo_ps_surface_emit_repeating_function (cairo_ps_surface_t       *surface,
 
 static cairo_status_t
 _cairo_ps_surface_emit_gradient (cairo_ps_surface_t       *surface,
-				 cairo_gradient_pattern_t *pattern)
+				 cairo_gradient_pattern_t *pattern,
+				 cairo_bool_t              is_ps_pattern)
 {
     cairo_matrix_t pat_to_ps;
     cairo_circle_double_t start, end;
@@ -3531,10 +3747,14 @@ _cairo_ps_surface_emit_gradient (cairo_ps_surface_t       *surface,
 	domain[1] = 1.0;
     }
 
-    if (pattern->base.type == CAIRO_PATTERN_TYPE_LINEAR) {
+    if (is_ps_pattern) {
 	_cairo_output_stream_printf (surface->stream,
 				     "<< /PatternType 2\n"
-				     "   /Shading\n"
+				     "   /Shading\n");
+    }
+
+    if (pattern->base.type == CAIRO_PATTERN_TYPE_LINEAR) {
+	_cairo_output_stream_printf (surface->stream,
 				     "   << /ShadingType 2\n"
 				     "      /ColorSpace /DeviceRGB\n"
 				     "      /Coords [ %f %f %f %f ]\n",
@@ -3542,8 +3762,6 @@ _cairo_ps_surface_emit_gradient (cairo_ps_surface_t       *surface,
 				     end.center.x, end.center.y);
     } else {
 	_cairo_output_stream_printf (surface->stream,
-				     "<< /PatternType 2\n"
-				     "   /Shading\n"
 				     "   << /ShadingType 3\n"
 				     "      /ColorSpace /DeviceRGB\n"
 				     "      /Coords [ %f %f %f %f %f %f ]\n",
@@ -3553,10 +3771,6 @@ _cairo_ps_surface_emit_gradient (cairo_ps_surface_t       *surface,
 				     MAX (end.radius, 0));
     }
 
-    _cairo_output_stream_printf (surface->stream,
-				 "      /Domain [ %f %f ]\n",
-				 domain[0], domain[1]);
-
     if (pattern->base.extend != CAIRO_EXTEND_NONE) {
 	_cairo_output_stream_printf (surface->stream,
                                      "      /Extend [ true true ]\n");
@@ -3565,22 +3779,44 @@ _cairo_ps_surface_emit_gradient (cairo_ps_surface_t       *surface,
                                      "      /Extend [ false false ]\n");
     }
 
+    if (domain[0] == 0.0 && domain[1] == 1.0) {
+	_cairo_output_stream_printf (surface->stream,
+				     "      /Function CairoFunction\n");
+    } else {
+	_cairo_output_stream_printf (surface->stream,
+				     "      /Function <<\n"
+				     "         /FunctionType 3\n"
+				     "         /Domain [ 0 1 ]\n"
+				     "         /Bounds [ ]\n"
+				     "         /Encode [ %f %f ]\n"
+				     "         /Functions [ CairoFunction ]\n"
+				     "      >>\n",
+				     domain[0], domain[1]);
+    }
+
     _cairo_output_stream_printf (surface->stream,
-				 "      /Function CairoFunction\n"
-				 "   >>\n"
-				 ">>\n"
-				 "[ %f %f %f %f %f %f ]\n"
-				 "makepattern setpattern\n",
-                                 pat_to_ps.xx, pat_to_ps.yx,
-                                 pat_to_ps.xy, pat_to_ps.yy,
-                                 pat_to_ps.x0, pat_to_ps.y0);
+				 "   >>\n");
+
+    if (is_ps_pattern) {
+	_cairo_output_stream_printf (surface->stream,
+				     ">>\n"
+				     "[ %f %f %f %f %f %f ]\n"
+				     "makepattern setpattern\n",
+				     pat_to_ps.xx, pat_to_ps.yx,
+				     pat_to_ps.xy, pat_to_ps.yy,
+				     pat_to_ps.x0, pat_to_ps.y0);
+    } else {
+	_cairo_output_stream_printf (surface->stream,
+				     "shfill\n");
+    }
 
     return status;
 }
 
 static cairo_status_t
 _cairo_ps_surface_emit_mesh_pattern (cairo_ps_surface_t     *surface,
-				     cairo_mesh_pattern_t   *pattern)
+				     cairo_mesh_pattern_t   *pattern,
+				     cairo_bool_t            is_ps_pattern)
 {
     cairo_matrix_t pat_to_ps;
     cairo_status_t status;
@@ -3615,9 +3851,15 @@ _cairo_ps_surface_emit_mesh_pattern (cairo_ps_surface_t     *surface,
 
     _cairo_output_stream_printf (surface->stream,
 				 "\n"
-				 "/CairoData exch def\n"
-				 "<< /PatternType 2\n"
-				 "   /Shading\n"
+				 "/CairoData exch def\n");
+
+    if (is_ps_pattern) {
+	_cairo_output_stream_printf (surface->stream,
+				     "<< /PatternType 2\n"
+				     "   /Shading\n");
+    }
+
+    _cairo_output_stream_printf (surface->stream,
 				 "   << /ShadingType %d\n"
 				 "      /ColorSpace /DeviceRGB\n"
 				 "      /DataSource CairoData\n"
@@ -3635,17 +3877,23 @@ _cairo_ps_surface_emit_mesh_pattern (cairo_ps_surface_t     *surface,
 
     _cairo_output_stream_printf (surface->stream,
 				 "]\n"
-				 "   >>\n"
-				 ">>\n");
+				 "   >>\n");
+
+    if (is_ps_pattern) {
+	_cairo_output_stream_printf (surface->stream,
+				     ">>\n"
+				     "[ %f %f %f %f %f %f ]\n",
+				     pat_to_ps.xx, pat_to_ps.yx,
+				     pat_to_ps.xy, pat_to_ps.yy,
+				     pat_to_ps.x0, pat_to_ps.y0);
+	_cairo_output_stream_printf (surface->stream,
+				     "makepattern\n"
+				     "setpattern\n");
+    } else {
+	_cairo_output_stream_printf (surface->stream, "shfill\n");
+    }
 
     _cairo_output_stream_printf (surface->stream,
-				 "[ %f %f %f %f %f %f ]\n",
-				 pat_to_ps.xx, pat_to_ps.yx,
-                                 pat_to_ps.xy, pat_to_ps.yy,
-                                 pat_to_ps.x0, pat_to_ps.y0);
-    _cairo_output_stream_printf (surface->stream,
-				 "makepattern\n"
-				 "setpattern\n"
 				 "currentdict /CairoData undef\n");
 
     _cairo_pdf_shading_fini (&shading);
@@ -3692,8 +3940,9 @@ _cairo_ps_surface_emit_pattern (cairo_ps_surface_t *surface,
 	break;
 
     case CAIRO_PATTERN_TYPE_SURFACE:
+    case CAIRO_PATTERN_TYPE_RASTER_SOURCE:
 	status = _cairo_ps_surface_emit_surface_pattern (surface,
-							 (cairo_surface_pattern_t *) pattern,
+							 (cairo_pattern_t *)pattern,
 							 extents,
 							 op);
 	if (unlikely (status))
@@ -3703,20 +3952,114 @@ _cairo_ps_surface_emit_pattern (cairo_ps_surface_t *surface,
     case CAIRO_PATTERN_TYPE_LINEAR:
     case CAIRO_PATTERN_TYPE_RADIAL:
 	status = _cairo_ps_surface_emit_gradient (surface,
-					  (cairo_gradient_pattern_t *) pattern);
+						  (cairo_gradient_pattern_t *) pattern,
+						  TRUE);
 	if (unlikely (status))
 	    return status;
 	break;
 
     case CAIRO_PATTERN_TYPE_MESH:
 	status = _cairo_ps_surface_emit_mesh_pattern (surface,
-					  (cairo_mesh_pattern_t *) pattern);
+						      (cairo_mesh_pattern_t *) pattern,
+						      TRUE);
 	if (unlikely (status))
 	    return status;
 	break;
     }
 
     return CAIRO_STATUS_SUCCESS;
+}
+
+static cairo_status_t
+_cairo_ps_surface_paint_gradient (cairo_ps_surface_t          *surface,
+				  const cairo_pattern_t       *source,
+				  const cairo_rectangle_int_t *extents)
+{
+    cairo_matrix_t pat_to_ps;
+    cairo_status_t status;
+
+    pat_to_ps = source->matrix;
+    status = cairo_matrix_invert (&pat_to_ps);
+    /* cairo_pattern_set_matrix ensures the matrix is invertible */
+    assert (status == CAIRO_STATUS_SUCCESS);
+    cairo_matrix_multiply (&pat_to_ps, &pat_to_ps, &surface->cairo_to_ps);
+
+    if (! _cairo_matrix_is_identity (&pat_to_ps)) {
+	_cairo_output_stream_printf (surface->stream,
+				     "[%f %f %f %f %f %f] concat\n",
+				     pat_to_ps.xx, pat_to_ps.yx,
+				     pat_to_ps.xy, pat_to_ps.yy,
+				     pat_to_ps.x0, pat_to_ps.y0);
+    }
+
+    if (source->type == CAIRO_PATTERN_TYPE_MESH) {
+	status = _cairo_ps_surface_emit_mesh_pattern (surface,
+						      (cairo_mesh_pattern_t *)source,
+						      FALSE);
+	if (unlikely (status))
+	    return status;
+    } else {
+	status = _cairo_ps_surface_emit_gradient (surface,
+						  (cairo_gradient_pattern_t *)source,
+						  FALSE);
+	if (unlikely (status))
+	    return status;
+    }
+
+    return status;
+}
+
+static cairo_status_t
+_cairo_ps_surface_paint_pattern (cairo_ps_surface_t           *surface,
+				 const cairo_pattern_t        *source,
+				 cairo_rectangle_int_t        *extents,
+				 cairo_operator_t              op,
+				 cairo_bool_t                  stencil_mask)
+{
+    switch (source->type) {
+    case CAIRO_PATTERN_TYPE_SURFACE:
+    case CAIRO_PATTERN_TYPE_RASTER_SOURCE:
+       return _cairo_ps_surface_paint_surface (surface,
+                                               (cairo_pattern_t *)source,
+                                               extents,
+                                               op,
+					       stencil_mask);
+
+    case CAIRO_PATTERN_TYPE_LINEAR:
+    case CAIRO_PATTERN_TYPE_RADIAL:
+    case CAIRO_PATTERN_TYPE_MESH:
+	return _cairo_ps_surface_paint_gradient (surface,
+						  source,
+						  extents);
+
+    case CAIRO_PATTERN_TYPE_SOLID:
+    default:
+       ASSERT_NOT_REACHED;
+       return CAIRO_STATUS_SUCCESS;
+    }
+}
+
+static cairo_bool_t
+_can_paint_pattern (const cairo_pattern_t *pattern)
+{
+    switch (pattern->type) {
+    case CAIRO_PATTERN_TYPE_SOLID:
+	return FALSE;
+
+    case CAIRO_PATTERN_TYPE_SURFACE:
+    case CAIRO_PATTERN_TYPE_RASTER_SOURCE:
+	return (pattern->extend == CAIRO_EXTEND_NONE ||
+		pattern->extend == CAIRO_EXTEND_PAD);
+
+    case CAIRO_PATTERN_TYPE_LINEAR:
+    case CAIRO_PATTERN_TYPE_RADIAL:
+    case CAIRO_PATTERN_TYPE_MESH:
+	return TRUE;
+
+    default:
+	ASSERT_NOT_REACHED;
+	return FALSE;
+    }
 }
 
 static cairo_bool_t
@@ -3801,17 +4144,14 @@ _cairo_ps_surface_paint (void			*abstract_surface,
     if (unlikely (status))
 	goto cleanup_composite;
 
-    if (source->type == CAIRO_PATTERN_TYPE_SURFACE &&
-	(source->extend == CAIRO_EXTEND_NONE ||
-	 source->extend == CAIRO_EXTEND_PAD))
-    {
+    if (_can_paint_pattern (source)) {
 	status = _cairo_pdf_operators_flush (&surface->pdf_operators);
 	if (unlikely (status))
 	    goto cleanup_composite;
 
 	_cairo_output_stream_printf (stream, "q\n");
-	status = _cairo_ps_surface_paint_surface (surface,
-						 (cairo_surface_pattern_t *) source,
+	status = _cairo_ps_surface_paint_pattern (surface,
+						  source,
 						  &extents.bounded, op, FALSE);
 	if (unlikely (status))
 	    goto cleanup_composite;
@@ -3870,8 +4210,8 @@ _cairo_ps_surface_mask (void			*abstract_surface,
 	goto cleanup_composite;
 
     _cairo_output_stream_printf (stream, "q\n");
-    status = _cairo_ps_surface_paint_surface (surface,
-					      (cairo_surface_pattern_t *) mask,
+    status = _cairo_ps_surface_paint_pattern (surface,
+					      mask,
 					      &extents.bounded, op, TRUE);
     if (unlikely (status))
 	goto cleanup_composite;
@@ -4013,10 +4353,7 @@ _cairo_ps_surface_fill (void		*abstract_surface,
     if (unlikely (status))
 	goto cleanup_composite;
 
-    if (source->type == CAIRO_PATTERN_TYPE_SURFACE &&
-	(source->extend == CAIRO_EXTEND_NONE ||
-	 source->extend == CAIRO_EXTEND_PAD))
-    {
+    if (_can_paint_pattern (source)) {
 	_cairo_output_stream_printf (surface->stream, "q\n");
 
 	status =  _cairo_pdf_operators_clip (&surface->pdf_operators,
@@ -4025,8 +4362,8 @@ _cairo_ps_surface_fill (void		*abstract_surface,
 	if (unlikely (status))
 	    goto cleanup_composite;
 
-	status = _cairo_ps_surface_paint_surface (surface,
-						 (cairo_surface_pattern_t *) source,
+	status = _cairo_ps_surface_paint_pattern (surface,
+						  source,
 						  &extents.bounded, op, FALSE);
 	if (unlikely (status))
 	    goto cleanup_composite;
@@ -4113,6 +4450,12 @@ _cairo_ps_surface_show_text_glyphs (void		       *abstract_surface,
 cleanup_composite:
     _cairo_composite_rectangles_fini (&extents);
     return status;
+}
+
+static const char **
+_cairo_ps_surface_get_supported_mime_types (void		 *abstract_surface)
+{
+    return _cairo_ps_supported_mime_types;
 }
 
 static void
@@ -4241,6 +4584,7 @@ static const cairo_surface_backend_t cairo_ps_surface_backend = {
     NULL, /* map to image */
     NULL, /* unmap image */
 
+    _cairo_surface_default_source,
     NULL, /* acquire_source_image */
     NULL, /* release_source_image */
     NULL, /* snapshot */
@@ -4264,6 +4608,7 @@ static const cairo_surface_backend_t cairo_ps_surface_backend = {
     NULL, /* show_glyphs */
     _cairo_ps_surface_has_show_text_glyphs,
     _cairo_ps_surface_show_text_glyphs,
+    _cairo_ps_surface_get_supported_mime_types,
 };
 
 static const cairo_paginated_surface_backend_t cairo_ps_surface_paginated_backend = {

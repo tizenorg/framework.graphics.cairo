@@ -112,7 +112,8 @@ _egl_destroy (void *abstract_ctx)
 
     eglMakeCurrent (ctx->display,
 		    EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-    eglDestroySurface (ctx->display, ctx->dummy_surface);
+    if (ctx->dummy_surface != EGL_NO_SURFACE)
+        eglDestroySurface (ctx->display, ctx->dummy_surface);
 }
 
 static cairo_bool_t
@@ -217,6 +218,9 @@ cairo_gl_surface_create_for_egl (cairo_device_t	*device,
 
     if (device->backend->type != CAIRO_DEVICE_TYPE_GL)
 	return _cairo_surface_create_in_error (_cairo_error (CAIRO_STATUS_SURFACE_TYPE_MISMATCH));
+
+    if (width <= 0 || height <= 0)
+        return _cairo_surface_create_in_error (_cairo_error (CAIRO_STATUS_INVALID_SIZE));
 
     surface = calloc (1, sizeof (cairo_egl_surface_t));
     if (unlikely (surface == NULL))

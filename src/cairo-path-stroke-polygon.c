@@ -40,8 +40,9 @@
 #define _BSD_SOURCE /* for hypot() */
 #include "cairoint.h"
 
-#include "cairo-box-private.h"
+#include "cairo-box-inline.h"
 #include "cairo-boxes-private.h"
+#include "cairo-contour-inline.h"
 #include "cairo-contour-private.h"
 #include "cairo-error-private.h"
 #include "cairo-path-fixed-private.h"
@@ -162,6 +163,8 @@ add_fan (struct stroker *stroker,
 	 struct stroke_contour *c)
 {
     int start, stop, step, i, npoints;
+
+    assert (stroker->pen.num_vertices);
 
     if (clockwise) {
 	step  = 1;
@@ -440,7 +443,7 @@ outer_close (struct stroker *stroker,
     int	clockwise;
 
     if (in->cw.x == out->cw.x && in->cw.y == out->cw.y &&
-	in->ccw.x == out->ccw.x && out->ccw.y == out->ccw.y)
+	in->ccw.x == out->ccw.x && in->ccw.y == out->ccw.y)
     {
 	return;
     }
@@ -635,7 +638,7 @@ outer_join (struct stroker *stroker,
     struct stroke_contour *outer;
 
     if (in->cw.x == out->cw.x && in->cw.y == out->cw.y &&
-	in->ccw.x == out->ccw.x && out->ccw.y == out->ccw.y)
+	in->ccw.x == out->ccw.x && in->ccw.y == out->ccw.y)
     {
 	return;
     }
@@ -1357,16 +1360,21 @@ _cairo_path_fixed_stroke_to_polygon (const cairo_path_fixed_t	*path,
     stroker.ctm_det_positive =
 	_cairo_matrix_compute_determinant (ctm) >= 0.0;
 
-    status = _cairo_pen_init (&stroker.pen,
-		              style->line_width / 2.0,
-			      tolerance, ctm);
-    if (unlikely (status))
-	return status;
+    stroker.pen.num_vertices = 0;
+    if (path->has_curve_to ||
+	style->line_join == CAIRO_LINE_JOIN_ROUND ||
+	style->line_cap == CAIRO_LINE_CAP_ROUND) {
+	status = _cairo_pen_init (&stroker.pen,
+				  style->line_width / 2.0,
+				  tolerance, ctm);
+	if (unlikely (status))
+	    return status;
 
-    /* If the line width is so small that the pen is reduced to a
-       single point, then we have nothing to do. */
-    if (stroker.pen.num_vertices <= 1)
-	return CAIRO_STATUS_SUCCESS;
+	/* If the line width is so small that the pen is reduced to a
+	   single point, then we have nothing to do. */
+	if (stroker.pen.num_vertices <= 1)
+	    return CAIRO_STATUS_SUCCESS;
+    }
 
     stroker.has_current_face = FALSE;
     stroker.has_first_face = FALSE;
@@ -1396,7 +1404,8 @@ _cairo_path_fixed_stroke_to_polygon (const cairo_path_fixed_t	*path,
 
     _cairo_contour_fini (&stroker.cw.contour);
     _cairo_contour_fini (&stroker.ccw.contour);
-    _cairo_pen_fini (&stroker.pen);
+    if (stroker.pen.num_vertices)
+	_cairo_pen_fini (&stroker.pen);
 
 #if DEBUG
     {

@@ -36,6 +36,7 @@
  */
 
 #include "cairoint.h"
+#include "cairo-clip-inline.h"
 #include "cairo-clip-private.h"
 #include "cairo-error-private.h"
 #include "cairo-freed-pool-private.h"
@@ -88,22 +89,31 @@ _cairo_clip_get_polygon (const cairo_clip_t *clip,
     if (! can_convert_to_polygon (clip))
 	return CAIRO_INT_STATUS_UNSUPPORTED;
 
-    _cairo_polygon_init_with_clip (polygon, clip);
+    if (clip->num_boxes < 2)
+	_cairo_polygon_init_with_clip (polygon, clip);
+    else
+	_cairo_polygon_init_with_clip (polygon, NULL);
 
     clip_path = clip->path;
+    *fill_rule = clip_path->fill_rule;
+    *antialias = clip_path->antialias;
+
     status = _cairo_path_fixed_fill_to_polygon (&clip_path->path,
 						clip_path->tolerance,
 						polygon);
-    if (unlikely (status)) {
-	_cairo_polygon_fini (polygon);
-	return status;
+    if (unlikely (status))
+	goto err;
+
+    if (clip->num_boxes > 1) {
+	status = _cairo_polygon_intersect_with_boxes (polygon, fill_rule,
+						      clip->boxes, clip->num_boxes);
+	if (unlikely (status))
+	    goto err;
     }
 
     polygon->limits = NULL;
     polygon->num_limits = 0;
 
-    *fill_rule = clip_path->fill_rule;
-    *antialias = clip_path->antialias;
     while ((clip_path = clip_path->prev) != NULL) {
 	cairo_polygon_t next;
 
@@ -115,15 +125,17 @@ _cairo_clip_get_polygon (const cairo_clip_t *clip,
 		status = _cairo_polygon_intersect (polygon, *fill_rule,
 						   &next, clip_path->fill_rule);
 	_cairo_polygon_fini (&next);
-	if (unlikely (status)) {
-	    _cairo_polygon_fini (polygon);
-	    return status;
-	}
+	if (unlikely (status))
+	    goto err;
 
 	*fill_rule = CAIRO_FILL_RULE_WINDING;
     }
 
     return CAIRO_STATUS_SUCCESS;
+
+err:
+    _cairo_polygon_fini (polygon);
+    return status;
 }
 
 cairo_bool_t

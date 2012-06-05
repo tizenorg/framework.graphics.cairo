@@ -40,7 +40,7 @@
 
 #include "cairo-boxes-private.h"
 #include "cairo-error-private.h"
-#include "cairo-combsort-private.h"
+#include "cairo-combsort-inline.h"
 #include "cairo-list-private.h"
 #include "cairo-traps-private.h"
 
@@ -828,14 +828,12 @@ _cairo_bentley_ottmann_tessellate_boxes (const cairo_boxes_t *in,
 
 		rectangles[j].right.x = box[i].p2.x;
 		rectangles[j].right.dir = -1;
-	    } else if (box[i].p1.x > box[i].p2.x) {
+	    } else {
 		rectangles[j].right.x = box[i].p1.x;
 		rectangles[j].right.dir = 1;
 
 		rectangles[j].left.x = box[i].p2.x;
 		rectangles[j].left.dir = -1;
-	    } else {
-		continue;
 	    }
 
 	    rectangles[j].left.right = NULL;

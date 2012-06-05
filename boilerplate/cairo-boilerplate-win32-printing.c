@@ -39,7 +39,6 @@
 #if CAIRO_CAN_TEST_WIN32_PRINTING_SURFACE
 
 #include <cairo-win32.h>
-#include <cairo-win32-private.h>
 #include <cairo-paginated-surface-private.h>
 
 #include <windows.h>
@@ -59,6 +58,35 @@
 #if !defined(FEATURESETTING_PSLEVEL)
 # define FEATURESETTING_PSLEVEL 0x0002
 #endif
+
+static cairo_status_t
+_cairo_win32_print_gdi_error (const char *context)
+{
+    void *lpMsgBuf;
+    DWORD last_error = GetLastError ();
+
+    if (!FormatMessageW (FORMAT_MESSAGE_ALLOCATE_BUFFER |
+			 FORMAT_MESSAGE_FROM_SYSTEM,
+			 NULL,
+			 last_error,
+			 MAKELANGID (LANG_NEUTRAL, SUBLANG_DEFAULT),
+			 (LPWSTR) &lpMsgBuf,
+			 0, NULL)) {
+	fprintf (stderr, "%s: Unknown GDI error", context);
+    } else {
+	fprintf (stderr, "%s: %S", context, (wchar_t *)lpMsgBuf);
+
+	LocalFree (lpMsgBuf);
+    }
+
+    fflush (stderr);
+
+    /* We should switch off of last_status, but we'd either return
+     * CAIRO_STATUS_NO_MEMORY or CAIRO_STATUS_UNKNOWN_ERROR and there
+     * is no CAIRO_STATUS_UNKNOWN_ERROR.
+     */
+    return CAIRO_STATUS_NO_MEMORY;
+}
 
 static cairo_user_data_key_t win32_closure_key;
 
@@ -169,7 +197,6 @@ _cairo_boilerplate_win32_printing_create_surface (const char		    *name,
 						  double		     max_width,
 						  double		     max_height,
 						  cairo_boilerplate_mode_t   mode,
-						  int			     id,
 						  void			   **closure)
 {
     win32_target_closure_t *ptc;

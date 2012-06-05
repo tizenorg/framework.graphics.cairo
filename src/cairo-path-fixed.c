@@ -38,8 +38,9 @@
 
 #include "cairoint.h"
 
-#include "cairo-box-private.h"
+#include "cairo-box-inline.h"
 #include "cairo-error-private.h"
+#include "cairo-list-inline.h"
 #include "cairo-path-fixed-private.h"
 #include "cairo-slope-private.h"
 
@@ -369,7 +370,7 @@ _cairo_path_fixed_destroy (cairo_path_fixed_t *path)
     free (path);
 }
 
-static inline cairo_path_op_t
+static cairo_path_op_t
 _cairo_path_fixed_last_op (cairo_path_fixed_t *path)
 {
     cairo_path_buf_t *buf;

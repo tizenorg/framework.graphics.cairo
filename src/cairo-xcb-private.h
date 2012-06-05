@@ -552,7 +552,7 @@ _cairo_xcb_connection_put_subimage (cairo_xcb_connection_t *connection,
 				    uint16_t width,
 				    uint16_t height,
 				    uint16_t cpp,
-				    uint16_t stride,
+				    int stride,
 				    int16_t dst_x,
 				    int16_t dst_y,
 				    uint8_t depth,
@@ -806,8 +806,10 @@ slim_hidden_proto (cairo_xcb_surface_create);
 slim_hidden_proto (cairo_xcb_surface_create_for_bitmap);
 slim_hidden_proto (cairo_xcb_surface_create_with_xrender_format);
 slim_hidden_proto (cairo_xcb_surface_set_size);
+slim_hidden_proto (cairo_xcb_surface_set_drawable);
 slim_hidden_proto (cairo_xcb_device_debug_get_precision);
 slim_hidden_proto_no_warn (cairo_xcb_device_debug_set_precision);
+slim_hidden_proto_no_warn (cairo_xcb_device_debug_cap_xrender_version);
 #endif
 
 #endif /* CAIRO_XCB_PRIVATE_H */

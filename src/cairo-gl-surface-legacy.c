@@ -44,6 +44,7 @@
 #include "cairo-default-context-private.h"
 #include "cairo-error-private.h"
 #include "cairo-gl-private.h"
+#include "cairo-image-surface-inline.h"
 
 cairo_status_t
 _cairo_gl_surface_acquire_dest_image (void		      *abstract_surface,
@@ -141,7 +142,7 @@ _cairo_gl_surface_clone_similar (void		     *abstract_surface,
     return UNSUPPORTED ("unknown src surface type in clone_similar");
 }
 
-/** Creates a cairo-gl pattern surface for the given trapezoids */
+/* Creates a cairo-gl pattern surface for the given trapezoids */
 static cairo_status_t
 _cairo_gl_get_traps_pattern (cairo_gl_surface_t *dst,
 			     int dst_x, int dst_y,

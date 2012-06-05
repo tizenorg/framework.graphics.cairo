@@ -1,8 +1,8 @@
 #sbs-git:slp/unmodified/cairo cairo 1.11.3 076a40b95caaadbc4a05b92a1a1d7840427e05b7
 Name:       cairo
 Summary:    A vector graphics library
-Version:    1.11.3
-Release:    2
+Version:    1.12.2
+Release:    1
 Group:      System/Libraries
 License:    LGPLv2 or MPLv1.1
 URL:        http://www.cairographics.org

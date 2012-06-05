@@ -770,7 +770,6 @@ _emit_header (void)
     get_prog_name (name, sizeof (name));
 
     _trace_printf ("%%!CairoScript - %s\n", name);
-    _trace_printf ("%%*** Warning CairoScript is still a new tracing format, and is subject to change.\n");
 }
 
 static cairo_bool_t
@@ -3511,24 +3510,42 @@ cairo_image_surface_create_for_data (unsigned char *data, cairo_format_t format,
     return ret;
 }
 
-cairo_surface_t *
-cairo_mime_surface_create (void *data, cairo_content_t content, int width, int height)
+unsigned char *
+cairo_image_surface_get_data (cairo_surface_t *surface)
 {
-    cairo_surface_t *ret;
+    unsigned char *ptr;
+
+    /* Just leave some breadcrumbs */
+    _enter_trace ();
+    _emit_line_info ();
+    if (surface != NULL && _write_lock ()) {
+	_trace_printf ("%% s%ld get-data\n", _get_surface_id (surface));
+	_write_unlock ();
+    }
+    ptr = DLCALL (cairo_image_surface_get_data, surface);
+    _exit_trace ();
+
+    return ptr;
+}
+
+cairo_pattern_t *
+cairo_pattern_create_raster_source (void *data, cairo_content_t content, int width, int height)
+{
+    cairo_pattern_t *ret;
 
     _enter_trace ();
 
-    ret = DLCALL (cairo_mime_surface_create, data, content, width, height);
+    ret = DLCALL (cairo_pattern_create_raster_source, data, content, width, height);
 
     _emit_line_info ();
     if (_write_lock ()) {
-	Object *obj = _create_surface (ret);
+	long pattern_id = _create_pattern_id (ret);
 	cairo_format_t format;
 	cairo_surface_t *image;
 	cairo_t *cr;
 
-	/* Impossible to accurately record the interaction with a mime-surface
-	 * so just suck all the data into an image upfront */
+	/* Impossible to accurately record the interaction with this custom
+	 * pattern so just suck all the data into an image upfront */
 	switch (content) {
 	case CAIRO_CONTENT_ALPHA: format = CAIRO_FORMAT_A8; break;
 	case CAIRO_CONTENT_COLOR: format = CAIRO_FORMAT_RGB24; break;
@@ -3536,23 +3553,20 @@ cairo_mime_surface_create (void *data, cairo_content_t content, int width, int h
 	case CAIRO_CONTENT_COLOR_ALPHA: format = CAIRO_FORMAT_ARGB32; break;
 	}
 
-	_trace_printf ("%% mime-surface\n");
+	_trace_printf ("%% raster-source\n");
 
 	image = DLCALL (cairo_image_surface_create, format, width, height);
 	cr = DLCALL (cairo_create, image);
-	DLCALL (cairo_set_source_surface, cr, ret, 0, 0);
+	DLCALL (cairo_set_source, cr, ret);
 	DLCALL (cairo_paint, cr);
 	DLCALL (cairo_destroy, cr);
 
 	_emit_image (image, NULL);
 	DLCALL (cairo_surface_destroy, image);
-	_trace_printf (" dup /s%ld exch def\n",
-		       obj->token);
+	_trace_printf (" pattern dup /s%ld exch def\n",
+		       pattern_id);
 
-	obj->width = width;
-	obj->height = height;
-	obj->defined = TRUE;
-	_push_object (obj);
+	_push_operand (PATTERN, ret);
 	_write_unlock ();
     }
 
@@ -3750,6 +3764,10 @@ cairo_surface_flush (cairo_surface_t *surface)
 {
     _enter_trace ();
     _emit_line_info ();
+    if (surface != NULL && _write_lock ()) {
+	_trace_printf ("%% s%ld flush\n", _get_surface_id (surface));
+	_write_unlock ();
+    }
     DLCALL (cairo_surface_flush, surface);
     _exit_trace ();
 }
@@ -5168,4 +5186,187 @@ cairo_vg_surface_create_for_image (cairo_vg_context_t *context,
     _exit_trace ();
     return ret;
 }
+#endif
+
+#if CAIRO_HAS_GL_SURFACE || CAIRO_HAS_GLESV2_SURFACE
+#include <cairo-gl.h>
+cairo_surface_t *
+cairo_gl_surface_create (cairo_device_t		*abstract_device,
+			 cairo_content_t	 content,
+			 int			 width,
+			 int			 height)
+{
+    cairo_surface_t *ret;
+
+    _enter_trace ();
+
+    ret = DLCALL (cairo_gl_surface_create, abstract_device, content, width, height);
+
+    _emit_line_info ();
+    if (_write_lock ()) {
+	Object *obj = _create_surface (ret);
+
+	_trace_printf ("dict\n"
+		       "  /type /gl set\n"
+		       "  /content //%s set\n"
+		       "  /width %d set\n"
+		       "  /height %d set\n"
+		       "  surface dup /s%ld exch def\n",
+		       _content_to_string (content),
+		       width, height,
+		       obj->token);
+	obj->width = width;
+	obj->height = height;
+	obj->defined = TRUE;
+	_push_object (obj);
+	_write_unlock ();
+    }
+
+    _exit_trace ();
+    return ret;
+}
+
+cairo_surface_t *
+cairo_gl_surface_create_for_texture (cairo_device_t	*abstract_device,
+				     cairo_content_t	 content,
+				     unsigned int	 tex,
+				     int		 width,
+				     int		 height)
+{
+    cairo_surface_t *ret;
+
+    _enter_trace ();
+
+    ret = DLCALL (cairo_gl_surface_create_for_texture, abstract_device, content, tex, width, height);
+
+    _emit_line_info ();
+    if (_write_lock ()) {
+	Object *obj = _create_surface (ret);
+
+	_trace_printf ("dict\n"
+		       "  /type /gl set\n"
+		       "  /content //%s set\n"
+		       "  /width %d set\n"
+		       "  /height %d set\n"
+		       "  surface dup /s%ld exch def\n",
+		       _content_to_string (content),
+		       width, height,
+		       obj->token);
+	obj->width = width;
+	obj->height = height;
+	obj->defined = TRUE;
+	_push_object (obj);
+	_write_unlock ();
+    }
+
+    _exit_trace ();
+    return ret;
+}
+
+#if CAIRO_HAS_GLX_FUNCTIONS
+cairo_surface_t *
+cairo_gl_surface_create_for_window (cairo_device_t *device,
+				    Window win,
+				    int width, int height)
+{
+    cairo_surface_t *ret;
+
+    _enter_trace ();
+
+    ret = DLCALL (cairo_gl_surface_create_for_window, device, win, width, height);
+
+    _emit_line_info ();
+    if (_write_lock ()) {
+	Object *obj = _create_surface (ret);
+
+	_trace_printf ("dict\n"
+		       "  /type /gl set\n"
+		       "  /width %d set\n"
+		       "  /height %d set\n"
+		       "  surface dup /s%ld exch def\n",
+		       width, height,
+		       obj->token);
+	obj->width = width;
+	obj->height = height;
+	obj->defined = TRUE;
+	_push_object (obj);
+	_write_unlock ();
+    }
+
+    _exit_trace ();
+    return ret;
+}
+#endif
+
+#if CAIRO_HAS_WGL_FUNCTIONS
+cairo_surface_t *
+cairo_gl_surface_create_for_dc (cairo_device_t		*device,
+				HDC			 dc,
+				int			 width,
+				int			 height)
+{
+    cairo_surface_t *ret;
+
+    _enter_trace ();
+
+    ret = DLCALL (cairo_gl_surface_create_for_dc, device, dc, width, height);
+
+    _emit_line_info ();
+    if (_write_lock ()) {
+	Object *obj = _create_surface (ret);
+
+	_trace_printf ("dict\n"
+		       "  /type /gl set\n"
+		       "  /width %d set\n"
+		       "  /height %d set\n"
+		       "  surface dup /s%ld exch def\n",
+		       width, height,
+		       obj->token);
+	obj->width = width;
+	obj->height = height;
+	obj->defined = TRUE;
+	_push_object (obj);
+	_write_unlock ();
+    }
+
+    _exit_trace ();
+    return ret;
+}
+#endif
+
+#if CAIRO_HAS_EGL_FUNCTIONS
+cairo_surface_t *
+cairo_gl_surface_create_for_egl (cairo_device_t	*device,
+				 EGLSurface	 egl,
+				 int		 width,
+				 int		 height)
+{
+    cairo_surface_t *ret;
+
+    _enter_trace ();
+
+    ret = DLCALL (cairo_gl_surface_create_for_egl, device, egl, width, height);
+
+    _emit_line_info ();
+    if (_write_lock ()) {
+	Object *obj = _create_surface (ret);
+
+	_trace_printf ("dict\n"
+		       "  /type /gl set\n"
+		       "  /width %d set\n"
+		       "  /height %d set\n"
+		       "  surface dup /s%ld exch def\n",
+		       width, height,
+		       obj->token);
+	obj->width = width;
+	obj->height = height;
+	obj->defined = TRUE;
+	_push_object (obj);
+	_write_unlock ();
+    }
+
+    _exit_trace ();
+    return ret;
+}
+#endif
 #endif

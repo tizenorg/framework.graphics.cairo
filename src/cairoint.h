@@ -73,7 +73,10 @@
 #include "cairo-compiler-private.h"
 #include "cairo-error-private.h"
 
-#if CAIRO_HAS_PS_SURFACE || CAIRO_HAS_SCRIPT_SURFACE || CAIRO_HAS_XML_SURFACE
+#if CAIRO_HAS_PDF_SURFACE    || \
+    CAIRO_HAS_PS_SURFACE     || \
+    CAIRO_HAS_SCRIPT_SURFACE || \
+    CAIRO_HAS_XML_SURFACE
 #define CAIRO_HAS_DEFLATE_STREAM 1
 #endif
 
@@ -84,7 +87,9 @@
 #define CAIRO_HAS_FONT_SUBSET 1
 #endif
 
-#if CAIRO_HAS_PS_SURFACE || CAIRO_HAS_PDF_SURFACE || CAIRO_HAS_FONT_SUBSET
+#if CAIRO_HAS_PS_SURFACE  || \
+    CAIRO_HAS_PDF_SURFACE || \
+    CAIRO_HAS_FONT_SUBSET
 #define CAIRO_HAS_PDF_OPERATORS 1
 #endif
 
@@ -310,6 +315,16 @@ _cairo_rectangle_intersects (const cairo_rectangle_int_t *dst,
 	     src->y + (int) src->height <= dst->y);
 }
 
+static inline cairo_bool_t
+_cairo_rectangle_contains_rectangle (const cairo_rectangle_int_t *a,
+				     const cairo_rectangle_int_t *b)
+{
+    return (a->x <= b->x &&
+	    a->x + (int) a->width >= b->x + (int) b->width &&
+	    a->y <= b->y &&
+	    a->y + (int) a->height >= b->y + (int) b->height);
+}
+
 cairo_private void
 _cairo_rectangle_int_from_double (cairo_rectangle_int_t *recti,
 				  const cairo_rectangle_t *rectf);
@@ -400,6 +415,11 @@ _cairo_ft_font_reset_static_data (void);
 
 cairo_private void
 _cairo_win32_font_reset_static_data (void);
+
+#if CAIRO_HAS_COGL_SURFACE
+void
+_cairo_cogl_context_reset_static_data (void);
+#endif
 
 /* the font backend interface */
 
@@ -1369,6 +1389,9 @@ _cairo_surface_has_snapshot (cairo_surface_t *surface,
 cairo_private void
 _cairo_surface_detach_snapshot (cairo_surface_t *snapshot);
 
+cairo_private void
+_cairo_surface_begin_modification (cairo_surface_t *surface);
+
 cairo_private_no_warn cairo_bool_t
 _cairo_surface_get_extents (cairo_surface_t         *surface,
 			    cairo_rectangle_int_t   *extents);
@@ -1639,11 +1662,26 @@ cairo_private cairo_status_t
 _cairo_matrix_compute_basis_scale_factors (const cairo_matrix_t *matrix,
 					   double *sx, double *sy, int x_major);
 
-cairo_private cairo_bool_t
-_cairo_matrix_is_identity (const cairo_matrix_t *matrix) cairo_pure;
+static inline cairo_bool_t
+_cairo_matrix_is_identity (const cairo_matrix_t *matrix)
+{
+    return (matrix->xx == 1.0 && matrix->yx == 0.0 &&
+	    matrix->xy == 0.0 && matrix->yy == 1.0 &&
+	    matrix->x0 == 0.0 && matrix->y0 == 0.0);
+}
 
-cairo_private cairo_bool_t
-_cairo_matrix_is_translation (const cairo_matrix_t *matrix) cairo_pure;
+static inline cairo_bool_t
+_cairo_matrix_is_translation (const cairo_matrix_t *matrix)
+{
+    return (matrix->xx == 1.0 && matrix->yx == 0.0 &&
+	    matrix->xy == 0.0 && matrix->yy == 1.0);
+}
+
+static inline cairo_bool_t
+_cairo_matrix_is_scale (const cairo_matrix_t *matrix)
+{
+    return matrix->yx == 0.0 && matrix->xy == 0.0;
+}
 
 cairo_private cairo_bool_t
 _cairo_matrix_is_integer_translation(const cairo_matrix_t *matrix,
@@ -1752,6 +1790,11 @@ _cairo_utf8_to_utf16 (const char *str,
 		      uint16_t  **result,
 		      int	 *items_written);
 #endif
+
+cairo_private void
+_cairo_matrix_multiply (cairo_matrix_t *r,
+			const cairo_matrix_t *a,
+			const cairo_matrix_t *b);
 
 /* cairo-observer.c */
 
@@ -1880,6 +1923,7 @@ slim_hidden_proto (cairo_surface_set_fallback_resolution);
 slim_hidden_proto (cairo_surface_set_mime_data);
 slim_hidden_proto (cairo_surface_show_page);
 slim_hidden_proto (cairo_surface_status);
+slim_hidden_proto (cairo_surface_supports_mime_type);
 slim_hidden_proto (cairo_surface_unmap_image);
 slim_hidden_proto (cairo_text_cluster_allocate);
 slim_hidden_proto (cairo_text_cluster_free);
@@ -1960,6 +2004,15 @@ cairo_private void
 _cairo_debug_print_polygon (FILE *stream, cairo_polygon_t *polygon);
 
 cairo_private void
+_cairo_debug_print_traps (FILE *file, const cairo_traps_t *traps);
+
+cairo_private void
 _cairo_debug_print_clip (FILE *stream, const cairo_clip_t *clip);
+
+#if 0
+#define TRACE(x) fprintf x
+#else
+#define TRACE(x)
+#endif
 
 #endif

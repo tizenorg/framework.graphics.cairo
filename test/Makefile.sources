@@ -12,6 +12,7 @@ test_sources = \
 	a8-mask.c					\
 	aliasing.c					\
 	alpha-similar.c					\
+	arc-direction.c					\
 	arc-infinite-loop.c				\
 	arc-looping-dash.c				\
 	api-special-cases.c				\
@@ -25,6 +26,7 @@ test_sources = \
 	bug-40410.c					\
 	bug-bo-rectangular.c				\
 	bug-bo-ricotz.c					\
+	bug-source-cu.c					\
 	bug-extents.c					\
 	bug-seams.c					\
 	caps.c						\
@@ -75,6 +77,7 @@ test_sources = \
 	composite-integer-translate-source.c		\
 	composite-integer-translate-over.c		\
 	composite-integer-translate-over-repeat.c	\
+	copy-disjoint.c					\
 	copy-path.c					\
 	coverage.c					\
 	create-for-stream.c				\
@@ -100,6 +103,7 @@ test_sources = \
 	degenerate-pen.c				\
 	degenerate-radial-gradient.c			\
 	degenerate-rel-curve-to.c			\
+	degenerate-solid-dash.c				\
 	drunkard-tails.c				\
 	device-offset.c					\
 	device-offset-fractional.c			\
@@ -114,12 +118,14 @@ test_sources = \
 	extend-repeat.c					\
 	extend-repeat-similar.c				\
 	extended-blend.c				\
+	fallback.c					\
 	fill-alpha.c					\
 	fill-alpha-pattern.c				\
 	fill-and-stroke.c				\
 	fill-and-stroke-alpha.c				\
 	fill-and-stroke-alpha-add.c			\
 	fill-degenerate-sort-order.c			\
+	fill-disjoint.c					\
 	fill-empty.c					\
 	fill-image.c				        \
 	fill-missed-stop.c				\
@@ -158,6 +164,7 @@ test_sources = \
 	in-fill-trapezoid.c				\
 	invalid-matrix.c				\
 	inverse-text.c					\
+	inverted-clip.c					\
 	joins.c						\
 	joins-loop.c					\
 	joins-star.c					\
@@ -203,10 +210,10 @@ test_sources = \
 	mesh-pattern-overlap.c		        	\
 	mesh-pattern-transformed.c		        \
 	mime-data.c					\
-	mime-surface.c					\
 	mime-surface-api.c				\
 	miter-precision.c				\
 	move-to-show-surface.c				\
+	negative-stride-image.c				\
 	new-sub-path.c					\
 	nil-surface.c					\
 	operator.c					\
@@ -228,11 +235,13 @@ test_sources = \
 	paint-with-alpha.c				\
 	partial-clip-text.c				\
 	partial-coverage.c				\
+	pass-through.c					\
 	path-append.c					\
 	path-stroke-twice.c				\
 	path-precision.c				\
 	pattern-get-type.c				\
 	pattern-getters.c				\
+	pdf-isolated-group.c				\
 	pixman-rotate.c					\
 	png.c						\
 	push-group.c					\
@@ -246,7 +255,11 @@ test_sources = \
 	random-intersections-nonzero.c			\
 	random-intersections-curves-eo.c		\
 	random-intersections-curves-nz.c		\
+	raster-source.c					\
 	record.c					\
+	record1414x.c					\
+	record2x.c					\
+	record90.c					\
 	record-extend.c					\
 	record-mesh.c					\
 	recording-surface-pattern.c			\
@@ -256,6 +269,7 @@ test_sources = \
 	rectilinear-grid.c				\
 	rectilinear-miter-limit.c			\
 	rectilinear-dash.c				\
+	rectilinear-dash-scale.c			\
 	rectilinear-stroke.c				\
 	reflected-stroke.c				\
 	rel-path.c					\
@@ -296,6 +310,7 @@ test_sources = \
 	source-clip-scale.c				\
 	source-surface-scale-paint.c			\
 	spline-decomposition.c				\
+	stride-12-image.c				\
 	stroke-pattern.c                                \
 	subsurface.c                                    \
 	subsurface-image-repeat.c                       \
@@ -315,6 +330,7 @@ test_sources = \
 	surface-pattern-scale-down-extend.c		\
 	surface-pattern-scale-up.c			\
 	text-antialias.c				\
+	text-antialias-subpixel.c			\
 	text-cache-crash.c				\
 	text-glyph-range.c				\
 	text-pattern.c					\

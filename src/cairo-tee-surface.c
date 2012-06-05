@@ -45,10 +45,10 @@
 #include "cairo-default-context-private.h"
 #include "cairo-error-private.h"
 #include "cairo-tee-surface-private.h"
-#include "cairo-recording-surface-private.h"
+#include "cairo-recording-surface-inline.h"
 #include "cairo-surface-wrapper-private.h"
 #include "cairo-array-private.h"
-#include "cairo-image-surface-private.h"
+#include "cairo-image-surface-inline.h"
 
 typedef struct _cairo_tee_surface {
     cairo_surface_t base;
@@ -117,6 +117,14 @@ _cairo_tee_surface_finish (void *abstract_surface)
     _cairo_array_fini (&surface->slaves);
 
     return CAIRO_STATUS_SUCCESS;
+}
+
+static cairo_surface_t *
+_cairo_tee_surface_source (void	     *abstract_surface,
+			   cairo_rectangle_int_t *extents)
+{
+    cairo_tee_surface_t *surface = abstract_surface;
+    return _cairo_surface_get_source (surface->master.target, extents);
 }
 
 static cairo_status_t
@@ -389,6 +397,7 @@ static const cairo_surface_backend_t cairo_tee_surface_backend = {
     NULL, /* map to image */
     NULL, /* unmap image */
 
+    _cairo_tee_surface_source,
     _cairo_tee_surface_acquire_source_image,
     _cairo_tee_surface_release_source_image,
     _cairo_tee_surface_snapshot,

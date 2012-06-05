@@ -37,12 +37,13 @@
 #include "cairoint.h"
 
 #include "cairo-analysis-surface-private.h"
+#include "cairo-box-inline.h"
 #include "cairo-default-context-private.h"
 #include "cairo-error-private.h"
 #include "cairo-paginated-private.h"
-#include "cairo-recording-surface-private.h"
-#include "cairo-surface-snapshot-private.h"
-#include "cairo-surface-subsurface-private.h"
+#include "cairo-recording-surface-inline.h"
+#include "cairo-surface-snapshot-inline.h"
+#include "cairo-surface-subsurface-inline.h"
 #include "cairo-region-private.h"
 
 typedef struct {
@@ -170,11 +171,7 @@ _analyze_recording_surface_pattern (cairo_analysis_surface_t *surface,
     cairo_matrix_multiply (&tmp->ctm, &p2d, &surface->ctm);
     tmp->has_ctm = ! _cairo_matrix_is_identity (&tmp->ctm);
 
-    if (_cairo_surface_is_snapshot (source))
-	source = _cairo_surface_snapshot_get_target (source);
-    if (_cairo_surface_is_subsurface (source))
-	source = _cairo_surface_subsurface_get_target (source);
-
+    source = _cairo_surface_get_source (source, NULL);
     status = _cairo_recording_surface_replay_and_create_regions (source,
 								 &tmp->base);
     analysis_status = tmp->has_unsupported ? CAIRO_INT_STATUS_IMAGE_FALLBACK : CAIRO_INT_STATUS_SUCCESS;
@@ -219,6 +216,14 @@ _add_operation (cairo_analysis_surface_t *surface,
 	if (_cairo_matrix_is_integer_translation (&surface->ctm, &tx, &ty)) {
 	    rect->x += tx;
 	    rect->y += ty;
+
+	    tx = _cairo_fixed_from_int (tx);
+	    bbox.p1.x += tx;
+	    bbox.p2.x += tx;
+
+	    ty = _cairo_fixed_from_int (ty);
+	    bbox.p1.y += ty;
+	    bbox.p2.y += ty;
 	} else {
 	    _cairo_matrix_transform_bounding_box_fixed (&surface->ctm,
 							&bbox, NULL);
@@ -247,16 +252,8 @@ _add_operation (cairo_analysis_surface_t *surface,
     if (surface->first_op) {
 	surface->first_op = FALSE;
 	surface->page_bbox = bbox;
-    } else {
-	if (bbox.p1.x < surface->page_bbox.p1.x)
-	    surface->page_bbox.p1.x = bbox.p1.x;
-	if (bbox.p1.y < surface->page_bbox.p1.y)
-	    surface->page_bbox.p1.y = bbox.p1.y;
-	if (bbox.p2.x > surface->page_bbox.p2.x)
-	    surface->page_bbox.p2.x = bbox.p2.x;
-	if (bbox.p2.y > surface->page_bbox.p2.y)
-	    surface->page_bbox.p2.y = bbox.p2.y;
-    }
+    } else
+	_cairo_box_add_box(&surface->page_bbox, &bbox);
 
     /* If the operation is completely enclosed within the fallback
      * region there is no benefit in emitting a native operation as
@@ -411,8 +408,7 @@ _cairo_analysis_surface_mask (void			*abstract_surface,
 
 	if (source->type == CAIRO_PATTERN_TYPE_SURFACE) {
 	    cairo_surface_t *src_surface = ((cairo_surface_pattern_t *)source)->surface;
-	    if (_cairo_surface_is_snapshot (src_surface))
-		src_surface = _cairo_surface_snapshot_get_target (src_surface);
+	    src_surface = _cairo_surface_get_source (src_surface, NULL);
 	    if (_cairo_surface_is_recording (src_surface)) {
 		backend_source_status =
 		    _analyze_recording_surface_pattern (surface, source);
@@ -423,8 +419,7 @@ _cairo_analysis_surface_mask (void			*abstract_surface,
 
 	if (mask->type == CAIRO_PATTERN_TYPE_SURFACE) {
 	    cairo_surface_t *mask_surface = ((cairo_surface_pattern_t *)mask)->surface;
-	    if (_cairo_surface_is_snapshot (mask_surface))
-		mask_surface = _cairo_surface_snapshot_get_target (mask_surface);
+	    mask_surface = _cairo_surface_get_source (mask_surface, NULL);
 	    if (_cairo_surface_is_recording (mask_surface)) {
 		backend_mask_status =
 		    _analyze_recording_surface_pattern (surface, mask);
@@ -702,6 +697,7 @@ static const cairo_surface_backend_t cairo_analysis_surface_backend = {
     NULL, /* map_to_image */
     NULL, /* unmap */
 
+    NULL, /* source */
     NULL, /* acquire_source_image */
     NULL, /* release_source_image */
     NULL, /* snapshot */
@@ -895,6 +891,7 @@ static const cairo_surface_backend_t cairo_null_surface_backend = {
     NULL, /* map to image */
     NULL, /* unmap image*/
 
+    NULL, /* source */
     NULL, /* acquire_source_image */
     NULL, /* release_source_image */
     NULL, /* snapshot */

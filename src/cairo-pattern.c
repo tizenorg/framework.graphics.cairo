@@ -34,9 +34,11 @@
 #include "cairo-error-private.h"
 #include "cairo-freed-pool-private.h"
 #include "cairo-image-surface-private.h"
+#include "cairo-list-inline.h"
 #include "cairo-path-private.h"
 #include "cairo-pattern-private.h"
-#include "cairo-recording-surface-private.h"
+#include "cairo-recording-surface-inline.h"
+#include "cairo-surface-snapshot-inline.h"
 
 #include <float.h>
 
@@ -59,7 +61,7 @@
  * or implicitly through
  * <function>cairo_set_source_<emphasis>type</emphasis>()</function>
  * functions.
- */
+ **/
 
 static freed_pool_t freed_pattern_pool[5];
 
@@ -187,7 +189,7 @@ _cairo_pattern_set_error (cairo_pattern_t *pattern,
     return _cairo_error (status);
 }
 
-static void
+void
 _cairo_pattern_init (cairo_pattern_t *pattern, cairo_pattern_type_t type)
 {
 #if HAVE_VALGRIND
@@ -207,6 +209,8 @@ _cairo_pattern_init (cairo_pattern_t *pattern, cairo_pattern_type_t type)
     case CAIRO_PATTERN_TYPE_MESH:
 	VALGRIND_MAKE_MEM_UNDEFINED (pattern, sizeof (cairo_mesh_pattern_t));
 	break;
+    case CAIRO_PATTERN_TYPE_RASTER_SOURCE:
+	break;
     }
 #endif
 
@@ -219,7 +223,8 @@ _cairo_pattern_init (cairo_pattern_t *pattern, cairo_pattern_type_t type)
 
     _cairo_user_data_array_init (&pattern->user_data);
 
-    if (type == CAIRO_PATTERN_TYPE_SURFACE)
+    if (type == CAIRO_PATTERN_TYPE_SURFACE ||
+	type == CAIRO_PATTERN_TYPE_RASTER_SOURCE)
 	pattern->extend = CAIRO_EXTEND_SURFACE_DEFAULT;
     else
 	pattern->extend = CAIRO_EXTEND_GRADIENT_DEFAULT;
@@ -291,6 +296,8 @@ cairo_status_t
 _cairo_pattern_init_copy (cairo_pattern_t	*pattern,
 			  const cairo_pattern_t *other)
 {
+    cairo_status_t status;
+
     if (other->status)
 	return _cairo_pattern_set_error (pattern, other->status);
 
@@ -316,7 +323,6 @@ _cairo_pattern_init_copy (cairo_pattern_t	*pattern,
     case CAIRO_PATTERN_TYPE_RADIAL: {
 	cairo_gradient_pattern_t *dst = (cairo_gradient_pattern_t *) pattern;
 	cairo_gradient_pattern_t *src = (cairo_gradient_pattern_t *) other;
-	cairo_status_t status;
 
 	if (other->type == CAIRO_PATTERN_TYPE_LINEAR) {
 	    VG (VALGRIND_MAKE_MEM_UNDEFINED (pattern, sizeof (cairo_linear_pattern_t)));
@@ -332,7 +338,6 @@ _cairo_pattern_init_copy (cairo_pattern_t	*pattern,
     case CAIRO_PATTERN_TYPE_MESH: {
 	cairo_mesh_pattern_t *dst = (cairo_mesh_pattern_t *) pattern;
 	cairo_mesh_pattern_t *src = (cairo_mesh_pattern_t *) other;
-	cairo_status_t status;
 
 	VG (VALGRIND_MAKE_MEM_UNDEFINED (pattern, sizeof (cairo_mesh_pattern_t)));
 
@@ -340,6 +345,12 @@ _cairo_pattern_init_copy (cairo_pattern_t	*pattern,
 	if (unlikely (status))
 	    return status;
 
+    } break;
+
+    case CAIRO_PATTERN_TYPE_RASTER_SOURCE: {
+	status = _cairo_raster_source_pattern_init_copy (pattern, other);
+	if (unlikely (status))
+	    return status;
     } break;
     }
 
@@ -376,6 +387,9 @@ _cairo_pattern_init_static_copy (cairo_pattern_t	*pattern,
     case CAIRO_PATTERN_TYPE_MESH:
 	size = sizeof (cairo_mesh_pattern_t);
 	break;
+    case CAIRO_PATTERN_TYPE_RASTER_SOURCE:
+	size = sizeof (cairo_raster_source_pattern_t);
+	break;
     }
 
     memcpy (pattern, other, size);
@@ -407,11 +421,11 @@ _cairo_pattern_init_snapshot (cairo_pattern_t       *pattern,
 
 	cairo_surface_destroy (surface);
 
-	if (surface_pattern->surface->status)
-	    return surface_pattern->surface->status;
-    }
+	status = surface_pattern->surface->status;
+    } else if (pattern->type == CAIRO_PATTERN_TYPE_RASTER_SOURCE)
+	status = _cairo_raster_source_pattern_snapshot (pattern);
 
-    return CAIRO_STATUS_SUCCESS;
+    return status;
 }
 
 void
@@ -442,6 +456,9 @@ _cairo_pattern_fini (cairo_pattern_t *pattern)
 
 	_cairo_array_fini (&mesh->patches);
     } break;
+    case CAIRO_PATTERN_TYPE_RASTER_SOURCE:
+	_cairo_raster_source_pattern_finish (pattern);
+	break;
     }
 
 #if HAVE_VALGRIND
@@ -460,6 +477,8 @@ _cairo_pattern_fini (cairo_pattern_t *pattern)
 	break;
     case CAIRO_PATTERN_TYPE_MESH:
 	VALGRIND_MAKE_MEM_NOACCESS (pattern, sizeof (cairo_mesh_pattern_t));
+	break;
+    case CAIRO_PATTERN_TYPE_RASTER_SOURCE:
 	break;
     }
 #endif
@@ -490,6 +509,9 @@ _cairo_pattern_create_copy (cairo_pattern_t	  **pattern_out,
 	break;
     case CAIRO_PATTERN_TYPE_MESH:
 	pattern = malloc (sizeof (cairo_mesh_pattern_t));
+	break;
+    case CAIRO_PATTERN_TYPE_RASTER_SOURCE:
+	pattern = malloc (sizeof (cairo_raster_source_pattern_t));
 	break;
     default:
 	ASSERT_NOT_REACHED;
@@ -629,6 +651,8 @@ _cairo_pattern_create_in_error (cairo_status_t status)
  * This function will always return a valid pointer, but if an error
  * occurred the pattern status will be set to an error.  To inspect
  * the status of a pattern use cairo_pattern_status().
+ *
+ * Since: 1.0
  **/
 cairo_pattern_t *
 cairo_pattern_create_rgb (double red, double green, double blue)
@@ -657,6 +681,8 @@ slim_hidden_def (cairo_pattern_create_rgb);
  * This function will always return a valid pointer, but if an error
  * occurred the pattern status will be set to an error.  To inspect
  * the status of a pattern use cairo_pattern_status().
+ *
+ * Since: 1.0
  **/
 cairo_pattern_t *
 cairo_pattern_create_rgba (double red, double green, double blue,
@@ -691,6 +717,8 @@ slim_hidden_def (cairo_pattern_create_rgba);
  * This function will always return a valid pointer, but if an error
  * occurred the pattern status will be set to an error.  To inspect
  * the status of a pattern use cairo_pattern_status().
+ *
+ * Since: 1.0
  **/
 cairo_pattern_t *
 cairo_pattern_create_for_surface (cairo_surface_t *surface)
@@ -749,6 +777,8 @@ slim_hidden_def (cairo_pattern_create_for_surface);
  * This function will always return a valid pointer, but if an error
  * occurred the pattern status will be set to an error.  To inspect
  * the status of a pattern use cairo_pattern_status().
+ *
+ * Since: 1.0
  **/
 cairo_pattern_t *
 cairo_pattern_create_linear (double x0, double y0, double x1, double y1)
@@ -800,6 +830,8 @@ cairo_pattern_create_linear (double x0, double y0, double x1, double y1)
  * This function will always return a valid pointer, but if an error
  * occurred the pattern status will be set to an error.  To inspect
  * the status of a pattern use cairo_pattern_status().
+ *
+ * Since: 1.0
  **/
 cairo_pattern_t *
 cairo_pattern_create_radial (double cx0, double cy0, double radius0,
@@ -858,7 +890,7 @@ static const int mesh_control_point_j[4] = { 1, 2, 2, 1 };
  * Degenerate sides are permitted so straight lines may be used. A
  * zero length line on one side may be used to create 3 sided patches.
  *
- * <informalexample><programlisting>
+ * <informalexample><screen>
  *       C1     Side 1       C2
  *        +---------------+
  *        |               |
@@ -871,7 +903,7 @@ static const int mesh_control_point_j[4] = { 1, 2, 2, 1 };
  *        |               |
  *        +---------------+
  *      C0     Side 3        C3
- * </programlisting></informalexample>
+ * </screen></informalexample>
  *
  * Each patch is constructed by first calling
  * cairo_mesh_pattern_begin_patch(), then cairo_mesh_pattern_move_to()
@@ -919,10 +951,10 @@ static const int mesh_control_point_j[4] = { 1, 2, 2, 1 };
  * cairo_mesh_pattern_begin_patch()/cairo_mesh_pattern_end_patch().
  *
  * <informalexample><programlisting>
- * cairo_pattern_t *mesh = cairo_mesh_pattern_create_mesh ();
+ * cairo_pattern_t *pattern = cairo_pattern_create_mesh ();
  *
  * /&ast; Add a Coons patch &ast;/
- * cairo_mesh_pattern_begin_patch (mesh);
+ * cairo_mesh_pattern_begin_patch (pattern);
  * cairo_mesh_pattern_move_to (pattern, 0, 0);
  * cairo_mesh_pattern_curve_to (pattern, 30, -30,  60,  30, 100, 0);
  * cairo_mesh_pattern_curve_to (pattern, 60,  30, 130,  60, 100, 100);
@@ -932,17 +964,17 @@ static const int mesh_control_point_j[4] = { 1, 2, 2, 1 };
  * cairo_mesh_pattern_set_corner_color_rgb (pattern, 1, 0, 1, 0);
  * cairo_mesh_pattern_set_corner_color_rgb (pattern, 2, 0, 0, 1);
  * cairo_mesh_pattern_set_corner_color_rgb (pattern, 3, 1, 1, 0);
- * cairo_mesh_pattern_end_patch (mesh);
+ * cairo_mesh_pattern_end_patch (pattern);
  *
  * /&ast; Add a Gouraud-shaded triangle &ast;/
- * cairo_mesh_pattern_begin_patch (mesh)
+ * cairo_mesh_pattern_begin_patch (pattern)
  * cairo_mesh_pattern_move_to (pattern, 100, 100);
  * cairo_mesh_pattern_line_to (pattern, 130, 130);
  * cairo_mesh_pattern_line_to (pattern, 130,  70);
  * cairo_mesh_pattern_set_corner_color_rgb (pattern, 0, 1, 0, 0);
  * cairo_mesh_pattern_set_corner_color_rgb (pattern, 1, 0, 1, 0);
  * cairo_mesh_pattern_set_corner_color_rgb (pattern, 2, 0, 0, 1);
- * cairo_mesh_pattern_end_patch (mesh)
+ * cairo_mesh_pattern_end_patch (pattern)
  * </programlisting></informalexample>
  *
  * When two patches overlap, the last one that has been added is drawn
@@ -1017,6 +1049,8 @@ cairo_pattern_create_mesh (void)
  * cairo_pattern_get_reference_count().
  *
  * Return value: the referenced #cairo_pattern_t.
+ *
+ * Since: 1.0
  **/
 cairo_pattern_t *
 cairo_pattern_reference (cairo_pattern_t *pattern)
@@ -1060,6 +1094,8 @@ cairo_pattern_get_type (cairo_pattern_t *pattern)
  * Return value: %CAIRO_STATUS_SUCCESS, %CAIRO_STATUS_NO_MEMORY,
  * %CAIRO_STATUS_INVALID_MATRIX, %CAIRO_STATUS_PATTERN_TYPE_MISMATCH,
  * or %CAIRO_STATUS_INVALID_MESH_CONSTRUCTION.
+ *
+ * Since: 1.0
  **/
 cairo_status_t
 cairo_pattern_status (cairo_pattern_t *pattern)
@@ -1074,6 +1110,8 @@ cairo_pattern_status (cairo_pattern_t *pattern)
  * Decreases the reference count on @pattern by one. If the result is
  * zero, then @pattern and all associated resources are freed.  See
  * cairo_pattern_reference().
+ *
+ * Since: 1.0
  **/
 void
 cairo_pattern_destroy (cairo_pattern_t *pattern)
@@ -1093,7 +1131,10 @@ cairo_pattern_destroy (cairo_pattern_t *pattern)
     _cairo_pattern_fini (pattern);
 
     /* maintain a small cache of freed patterns */
-    _freed_pool_put (&freed_pattern_pool[type], pattern);
+    if (type < ARRAY_LENGTH (freed_pattern_pool))
+	_freed_pool_put (&freed_pattern_pool[type], pattern);
+    else
+	free (pattern);
 }
 slim_hidden_def (cairo_pattern_destroy);
 
@@ -1521,7 +1562,7 @@ slim_hidden_def (cairo_mesh_pattern_line_to);
  * Note: If @pattern is not a mesh pattern then @pattern will be put
  * into an error status with a status of
  * %CAIRO_STATUS_PATTERN_TYPE_MISMATCH. If @pattern has no current
- * patch or the current patch already has at leas one side, @pattern
+ * patch or the current patch already has at least one side, @pattern
  * will be put into an error status with a status of
  * %CAIRO_STATUS_INVALID_MESH_CONSTRUCTION.
  *
@@ -1850,6 +1891,8 @@ _cairo_pattern_add_color_stop (cairo_gradient_pattern_t	*pattern,
  * Note: If the pattern is not a gradient pattern, (eg. a linear or
  * radial pattern), then the pattern will be put into an error status
  * with a status of %CAIRO_STATUS_PATTERN_TYPE_MISMATCH.
+ *
+ * Since: 1.0
  **/
 void
 cairo_pattern_add_color_stop_rgb (cairo_pattern_t *pattern,
@@ -1887,7 +1930,9 @@ cairo_pattern_add_color_stop_rgb (cairo_pattern_t *pattern,
  * Note: If the pattern is not a gradient pattern, (eg. a linear or
  * radial pattern), then the pattern will be put into an error status
  * with a status of %CAIRO_STATUS_PATTERN_TYPE_MISMATCH.
- */
+ *
+ * Since: 1.0
+ **/
 void
 cairo_pattern_add_color_stop_rgba (cairo_pattern_t *pattern,
 				   double	   offset,
@@ -1948,6 +1993,8 @@ slim_hidden_def (cairo_pattern_add_color_stop_rgba);
  *
  * Also, please note the discussion of the user-space locking
  * semantics of cairo_set_source().
+ *
+ * Since: 1.0
  **/
 void
 cairo_pattern_set_matrix (cairo_pattern_t      *pattern,
@@ -1978,6 +2025,8 @@ slim_hidden_def (cairo_pattern_set_matrix);
  * @matrix: return value for the matrix
  *
  * Stores the pattern's transformation matrix into @matrix.
+ *
+ * Since: 1.0
  **/
 void
 cairo_pattern_get_matrix (cairo_pattern_t *pattern, cairo_matrix_t *matrix)
@@ -2004,6 +2053,8 @@ cairo_pattern_get_matrix (cairo_pattern_t *pattern, cairo_matrix_t *matrix)
  * cairo_set_source_surface (cr, image, x, y);
  * cairo_pattern_set_filter (cairo_get_source (cr), CAIRO_FILTER_NEAREST);
  * </programlisting></informalexample>
+ *
+ * Since: 1.0
  **/
 void
 cairo_pattern_set_filter (cairo_pattern_t *pattern, cairo_filter_t filter)
@@ -2023,6 +2074,8 @@ cairo_pattern_set_filter (cairo_pattern_t *pattern, cairo_filter_t filter)
  * for details on each filter.
  *
  * Return value: the current filter used for resizing the pattern.
+ *
+ * Since: 1.0
  **/
 cairo_filter_t
 cairo_pattern_get_filter (cairo_pattern_t *pattern)
@@ -2042,6 +2095,8 @@ cairo_pattern_get_filter (cairo_pattern_t *pattern)
  *
  * The default extend mode is %CAIRO_EXTEND_NONE for surface patterns
  * and %CAIRO_EXTEND_PAD for gradient patterns.
+ *
+ * Since: 1.0
  **/
 void
 cairo_pattern_set_extend (cairo_pattern_t *pattern, cairo_extend_t extend)
@@ -2062,6 +2117,8 @@ cairo_pattern_set_extend (cairo_pattern_t *pattern, cairo_extend_t extend)
  *
  * Return value: the current extend strategy used for drawing the
  * pattern.
+ *
+ * Since: 1.0
  **/
 cairo_extend_t
 cairo_pattern_get_extend (cairo_pattern_t *pattern)
@@ -2183,8 +2240,8 @@ _extend_range (double range[2], double value, cairo_bool_t valid)
     return TRUE;
 }
 
-/**
- * _cairo_radial_pattern_focus_is_inside
+/*
+ * _cairo_radial_pattern_focus_is_inside:
  *
  * Returns %TRUE if and only if the focus point exists and is
  * contained in one of the two extreme circles. This condition is
@@ -2196,7 +2253,7 @@ _extend_range (double range[2], double value, cairo_bool_t valid)
  * considered as contained in the circle, hence this function returns
  * %FALSE.
  *
- **/
+ */
 cairo_bool_t
 _cairo_radial_pattern_focus_is_inside (const cairo_radial_pattern_t *radial)
 {
@@ -2559,7 +2616,7 @@ _cairo_radial_pattern_box_to_parameter (const cairo_radial_pattern_t *radial,
 }
 
 /**
- * _cairo_gradient_pattern_box_to_parameter
+ * _cairo_gradient_pattern_box_to_parameter:
  *
  * Compute a interpolation range sufficient to draw (within the given
  * tolerance) the gradient in the given box getting the same result as
@@ -2591,7 +2648,7 @@ _cairo_gradient_pattern_box_to_parameter (const cairo_gradient_pattern_t *gradie
 }
 
 /**
- * _cairo_gradient_pattern_interpolate
+ * _cairo_gradient_pattern_interpolate:
  *
  * Interpolate between the start and end objects of linear or radial
  * gradients.  The interpolated object is stored in out_circle, with
@@ -2624,7 +2681,7 @@ _cairo_gradient_pattern_interpolate (const cairo_gradient_pattern_t *gradient,
 
 
 /**
- * _cairo_gradient_pattern_fit_to_range
+ * _cairo_gradient_pattern_fit_to_range:
  *
  * Scale the extremes of a gradient to guarantee that the coordinates
  * and their deltas are within the range (-max_value, max_value). The
@@ -2863,7 +2920,7 @@ _gradient_color_average (const cairo_gradient_pattern_t *gradient,
 }
 
 /**
- * _cairo_pattern_alpha_range
+ * _cairo_pattern_alpha_range:
  *
  * Convenience function to determine the minimum and maximum alpha in
  * the drawn part of a pattern (i.e. ignoring clear parts caused by
@@ -2929,6 +2986,7 @@ _cairo_pattern_alpha_range (const cairo_pattern_t *pattern,
 	/* fall through */
 
     case CAIRO_PATTERN_TYPE_SURFACE:
+    case CAIRO_PATTERN_TYPE_RASTER_SOURCE:
 	alpha_min = 0;
 	alpha_max = 1;
 	break;
@@ -2941,7 +2999,7 @@ _cairo_pattern_alpha_range (const cairo_pattern_t *pattern,
 }
 
 /**
- * _cairo_mesh_pattern_coord_box
+ * _cairo_mesh_pattern_coord_box:
  *
  * Convenience function to determine the range of the coordinates of
  * the points used to define the patches of the mesh.
@@ -2998,7 +3056,7 @@ _cairo_mesh_pattern_coord_box (const cairo_mesh_pattern_t *mesh,
 }
 
 /**
- * _cairo_gradient_pattern_is_solid
+ * _cairo_gradient_pattern_is_solid:
  *
  * Convenience function to determine whether a gradient pattern is
  * a solid color within the given extents. In this case the color
@@ -3081,7 +3139,7 @@ _mesh_is_clear (const cairo_mesh_pattern_t *mesh)
 }
 
 /**
- * _cairo_pattern_is_opaque_solid
+ * _cairo_pattern_is_opaque_solid:
  *
  * Convenience function to determine whether a pattern is an opaque
  * (alpha==1.0) solid color pattern. This is done by testing whether
@@ -3108,28 +3166,37 @@ static cairo_bool_t
 _surface_is_opaque (const cairo_surface_pattern_t *pattern,
 		    const cairo_rectangle_int_t *sample)
 {
+    cairo_rectangle_int_t extents;
+
     if (pattern->surface->content & CAIRO_CONTENT_ALPHA)
 	return FALSE;
 
     if (pattern->base.extend != CAIRO_EXTEND_NONE)
 	return TRUE;
 
-    if (sample != NULL) {
-	cairo_rectangle_int_t extents;
+    if (! _cairo_surface_get_extents (pattern->surface, &extents))
+	return TRUE;
 
-	if (! _cairo_surface_get_extents (pattern->surface, &extents))
-	    return TRUE;
+    if (sample == NULL)
+	return FALSE;
 
-	if (sample->x >= extents.x &&
-	    sample->y >= extents.y &&
-	    sample->x + sample->width  <= extents.x + extents.width &&
-	    sample->y + sample->height <= extents.y + extents.height)
-	{
-	    return TRUE;
-	}
-    }
+    return _cairo_rectangle_contains_rectangle (&extents, sample);
+}
 
-    return FALSE;
+static cairo_bool_t
+_raster_source_is_opaque (const cairo_raster_source_pattern_t *pattern,
+			  const cairo_rectangle_int_t *sample)
+{
+    if (pattern->content & CAIRO_CONTENT_ALPHA)
+	return FALSE;
+
+    if (pattern->base.extend != CAIRO_EXTEND_NONE)
+	return TRUE;
+
+    if (sample == NULL)
+	return FALSE;
+
+    return _cairo_rectangle_contains_rectangle (&pattern->extents, sample);
 }
 
 static cairo_bool_t
@@ -3143,6 +3210,12 @@ _surface_is_clear (const cairo_surface_pattern_t *pattern)
 
     return pattern->surface->is_clear &&
 	pattern->surface->content & CAIRO_CONTENT_ALPHA;
+}
+
+static cairo_bool_t
+_raster_source_is_clear (const cairo_raster_source_pattern_t *pattern)
+{
+    return pattern->extents.width == 0 || pattern->extents.height == 0;
 }
 
 static cairo_bool_t
@@ -3192,7 +3265,7 @@ _gradient_is_opaque (const cairo_gradient_pattern_t *gradient,
 }
 
 /**
- * _cairo_pattern_is_opaque
+ * _cairo_pattern_is_opaque:
  *
  * Convenience function to determine whether a pattern is an opaque
  * pattern (of any type). The same caveats that apply to
@@ -3215,6 +3288,8 @@ _cairo_pattern_is_opaque (const cairo_pattern_t *abstract_pattern,
 	return _cairo_pattern_is_opaque_solid (abstract_pattern);
     case CAIRO_PATTERN_TYPE_SURFACE:
 	return _surface_is_opaque (&pattern->surface, sample);
+    case CAIRO_PATTERN_TYPE_RASTER_SOURCE:
+	return _raster_source_is_opaque (&pattern->raster_source, sample);
     case CAIRO_PATTERN_TYPE_LINEAR:
     case CAIRO_PATTERN_TYPE_RADIAL:
 	return _gradient_is_opaque (&pattern->gradient.base, sample);
@@ -3240,6 +3315,8 @@ _cairo_pattern_is_clear (const cairo_pattern_t *abstract_pattern)
 	return CAIRO_COLOR_IS_CLEAR (&pattern->solid.color);
     case CAIRO_PATTERN_TYPE_SURFACE:
 	return _surface_is_clear (&pattern->surface);
+    case CAIRO_PATTERN_TYPE_RASTER_SOURCE:
+	return _raster_source_is_clear (&pattern->raster_source);
     case CAIRO_PATTERN_TYPE_LINEAR:
     case CAIRO_PATTERN_TYPE_RADIAL:
 	return _gradient_is_clear (&pattern->gradient.base, NULL);
@@ -3264,7 +3341,7 @@ _cairo_pattern_is_clear (const cairo_pattern_t *abstract_pattern)
  * XXX: We don't actually have any way of querying the backend for
  *      the filter radius, so we just guess base on what we know that
  *      backends do currently (see bug #10508)
- */
+ **/
 cairo_filter_t
 _cairo_pattern_analyze_filter (const cairo_pattern_t	*pattern,
 			       double			*pad_out)
@@ -3406,6 +3483,29 @@ _cairo_pattern_get_extents (const cairo_pattern_t         *pattern,
 	    y1 = surface_extents.y - pad;
 	    x2 = surface_extents.x + (int) surface_extents.width  + pad;
 	    y2 = surface_extents.y + (int) surface_extents.height + pad;
+	}
+	break;
+
+    case CAIRO_PATTERN_TYPE_RASTER_SOURCE:
+	{
+	    const cairo_raster_source_pattern_t *raster =
+		(const cairo_raster_source_pattern_t *) pattern;
+	    double pad;
+
+	    if (raster->extents.width == 0 || raster->extents.height == 0)
+		goto EMPTY;
+
+	    if (pattern->extend != CAIRO_EXTEND_NONE)
+		goto UNBOUNDED;
+
+	    /* The filter can effectively enlarge the extents of the
+	     * pattern, so extend as necessary.
+	     */
+	    _cairo_pattern_analyze_filter (pattern, &pad);
+	    x1 = raster->extents.x - pad;
+	    y1 = raster->extents.y - pad;
+	    x2 = raster->extents.x + (int) raster->extents.width  + pad;
+	    y2 = raster->extents.y + (int) raster->extents.height + pad;
 	}
 	break;
 
@@ -3568,6 +3668,7 @@ _cairo_pattern_get_ink_extents (const cairo_pattern_t         *pattern,
 	    (const cairo_surface_pattern_t *) pattern;
 	cairo_surface_t *surface = surface_pattern->surface;
 
+	surface = _cairo_surface_get_source (surface, NULL);
 	if (_cairo_surface_is_recording (surface)) {
 	    cairo_matrix_t imatrix;
 	    cairo_box_t box;
@@ -3666,6 +3767,15 @@ _cairo_surface_pattern_hash (unsigned long hash,
     return hash;
 }
 
+static unsigned long
+_cairo_raster_source_pattern_hash (unsigned long hash,
+				   const cairo_raster_source_pattern_t *raster)
+{
+    hash ^= (uintptr_t)raster->user_data;
+
+    return hash;
+}
+
 unsigned long
 _cairo_pattern_hash (const cairo_pattern_t *pattern)
 {
@@ -3698,6 +3808,8 @@ _cairo_pattern_hash (const cairo_pattern_t *pattern)
 	return _cairo_mesh_pattern_hash (hash, (cairo_mesh_pattern_t *) pattern);
     case CAIRO_PATTERN_TYPE_SURFACE:
 	return _cairo_surface_pattern_hash (hash, (cairo_surface_pattern_t *) pattern);
+    case CAIRO_PATTERN_TYPE_RASTER_SOURCE:
+	return _cairo_raster_source_pattern_hash (hash, (cairo_raster_source_pattern_t *) pattern);
     default:
 	ASSERT_NOT_REACHED;
 	return FALSE;
@@ -3804,6 +3916,13 @@ _cairo_surface_pattern_equal (const cairo_surface_pattern_t *a,
     return a->surface->unique_id == b->surface->unique_id;
 }
 
+static cairo_bool_t
+_cairo_raster_source_pattern_equal (const cairo_raster_source_pattern_t *a,
+				    const cairo_raster_source_pattern_t *b)
+{
+    return a->user_data == b->user_data;
+}
+
 cairo_bool_t
 _cairo_pattern_equal (const cairo_pattern_t *a, const cairo_pattern_t *b)
 {
@@ -3846,6 +3965,9 @@ _cairo_pattern_equal (const cairo_pattern_t *a, const cairo_pattern_t *b)
     case CAIRO_PATTERN_TYPE_SURFACE:
 	return _cairo_surface_pattern_equal ((cairo_surface_pattern_t *) a,
 					     (cairo_surface_pattern_t *) b);
+    case CAIRO_PATTERN_TYPE_RASTER_SOURCE:
+	return _cairo_raster_source_pattern_equal ((cairo_raster_source_pattern_t *) a,
+						   (cairo_raster_source_pattern_t *) b);
     default:
 	ASSERT_NOT_REACHED;
 	return FALSE;
@@ -3853,7 +3975,7 @@ _cairo_pattern_equal (const cairo_pattern_t *a, const cairo_pattern_t *b)
 }
 
 /**
- * cairo_pattern_get_rgba
+ * cairo_pattern_get_rgba:
  * @pattern: a #cairo_pattern_t
  * @red: return value for red component of color, or %NULL
  * @green: return value for green component of color, or %NULL
@@ -3897,7 +4019,7 @@ cairo_pattern_get_rgba (cairo_pattern_t *pattern,
 }
 
 /**
- * cairo_pattern_get_surface
+ * cairo_pattern_get_surface:
  * @pattern: a #cairo_pattern_t
  * @surface: return value for surface of pattern, or %NULL
  * 
@@ -3930,7 +4052,7 @@ cairo_pattern_get_surface (cairo_pattern_t *pattern,
 }
 
 /**
- * cairo_pattern_get_color_stop_rgba
+ * cairo_pattern_get_color_stop_rgba:
  * @pattern: a #cairo_pattern_t
  * @index: index of the stop to return data for
  * @offset: return value for the offset of the stop, or %NULL
@@ -3983,7 +4105,7 @@ cairo_pattern_get_color_stop_rgba (cairo_pattern_t *pattern,
 }
 
 /**
- * cairo_pattern_get_color_stop_count
+ * cairo_pattern_get_color_stop_count:
  * @pattern: a #cairo_pattern_t
  * @count: return value for the number of color stops, or %NULL
  *
@@ -3995,7 +4117,7 @@ cairo_pattern_get_color_stop_rgba (cairo_pattern_t *pattern,
  * pattern.
  *
  * Since: 1.4
- */
+ **/
 cairo_status_t
 cairo_pattern_get_color_stop_count (cairo_pattern_t *pattern,
 				    int *count)
@@ -4016,7 +4138,7 @@ cairo_pattern_get_color_stop_count (cairo_pattern_t *pattern,
 }
 
 /**
- * cairo_pattern_get_linear_points
+ * cairo_pattern_get_linear_points:
  * @pattern: a #cairo_pattern_t
  * @x0: return value for the x coordinate of the first point, or %NULL
  * @y0: return value for the y coordinate of the first point, or %NULL
@@ -4057,7 +4179,7 @@ cairo_pattern_get_linear_points (cairo_pattern_t *pattern,
 }
 
 /**
- * cairo_pattern_get_radial_circles
+ * cairo_pattern_get_radial_circles:
  * @pattern: a #cairo_pattern_t
  * @x0: return value for the x coordinate of the center of the first circle, or %NULL
  * @y0: return value for the y coordinate of the center of the first circle, or %NULL
@@ -4105,7 +4227,7 @@ cairo_pattern_get_radial_circles (cairo_pattern_t *pattern,
 }
 
 /**
- * cairo_mesh_pattern_get_patch_count
+ * cairo_mesh_pattern_get_patch_count:
  * @pattern: a #cairo_pattern_t
  * @count: return value for the number patches, or %NULL
  *
@@ -4120,7 +4242,7 @@ cairo_pattern_get_radial_circles (cairo_pattern_t *pattern,
  * pattern.
  *
  * Since: 1.12
- */
+ **/
 cairo_status_t
 cairo_mesh_pattern_get_patch_count (cairo_pattern_t *pattern,
 				    unsigned int *count)
@@ -4144,7 +4266,7 @@ cairo_mesh_pattern_get_patch_count (cairo_pattern_t *pattern,
 slim_hidden_def (cairo_mesh_pattern_get_patch_count);
 
 /**
- * cairo_mesh_pattern_get_path
+ * cairo_mesh_pattern_get_path:
  * @pattern: a #cairo_pattern_t
  * @patch_num: the patch number to return data for
  *
@@ -4160,7 +4282,7 @@ slim_hidden_def (cairo_mesh_pattern_get_patch_count);
  * status %CAIRO_STATUS_PATTERN_TYPE_MISMATCH is returned.
  *
  * Since: 1.12
- */
+ **/
 cairo_path_t *
 cairo_mesh_pattern_get_path (cairo_pattern_t *pattern,
 			     unsigned int patch_num)
@@ -4232,7 +4354,7 @@ cairo_mesh_pattern_get_path (cairo_pattern_t *pattern,
 slim_hidden_def (cairo_mesh_pattern_get_path);
 
 /**
- * cairo_mesh_pattern_get_corner_color_rgba
+ * cairo_mesh_pattern_get_corner_color_rgba:
  * @pattern: a #cairo_pattern_t
  * @patch_num: the patch number to return data for
  * @corner_num: the corner number to return data for
@@ -4300,7 +4422,7 @@ cairo_mesh_pattern_get_corner_color_rgba (cairo_pattern_t *pattern,
 slim_hidden_def (cairo_mesh_pattern_get_corner_color_rgba);
 
 /**
- * cairo_mesh_pattern_get_control_point
+ * cairo_mesh_pattern_get_control_point:
  * @pattern: a #cairo_pattern_t
  * @patch_num: the patch number to return data for
  * @point_num: the control point number to return data for
@@ -4381,6 +4503,13 @@ _cairo_debug_print_surface_pattern (FILE *file,
 }
 
 static void
+_cairo_debug_print_raster_source_pattern (FILE *file,
+					  const cairo_raster_source_pattern_t *raster)
+{
+    printf ("  content: %x, size %dx%d\n", raster->content, raster->extents.width, raster->extents.height);
+}
+
+static void
 _cairo_debug_print_linear_pattern (FILE *file,
 				    const cairo_linear_pattern_t *pattern)
 {
@@ -4408,6 +4537,7 @@ _cairo_debug_print_pattern (FILE *file, const cairo_pattern_t *pattern)
     case CAIRO_PATTERN_TYPE_LINEAR: s = "linear"; break;
     case CAIRO_PATTERN_TYPE_RADIAL: s = "radial"; break;
     case CAIRO_PATTERN_TYPE_MESH: s = "mesh"; break;
+    case CAIRO_PATTERN_TYPE_RASTER_SOURCE: s = "raster"; break;
     default: s = "invalid"; ASSERT_NOT_REACHED; break;
     }
 
@@ -4441,6 +4571,9 @@ _cairo_debug_print_pattern (FILE *file, const cairo_pattern_t *pattern)
     switch (pattern->type) {
     default:
     case CAIRO_PATTERN_TYPE_SOLID:
+	break;
+    case CAIRO_PATTERN_TYPE_RASTER_SOURCE:
+	_cairo_debug_print_raster_source_pattern (file, (cairo_raster_source_pattern_t *)pattern);
 	break;
     case CAIRO_PATTERN_TYPE_SURFACE:
 	_cairo_debug_print_surface_pattern (file, (cairo_surface_pattern_t *)pattern);

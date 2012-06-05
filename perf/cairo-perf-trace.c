@@ -354,21 +354,22 @@ static void
 usage (const char *argv0)
 {
     fprintf (stderr,
-"Usage: %s [-l] [-r] [-v] [-i iterations] [test-names ... | traces ...]\n"
-"       %s -l\n"
+"Usage: %s [-clrsv] [-i iterations] [-t tile-size] [-x exclude-file] [test-names ... | traces ...]\n"
 "\n"
 "Run the cairo performance test suite over the given tests (all by default)\n"
 "The command-line arguments are interpreted as follows:\n"
 "\n"
+"  -c	use surface cache; keep a cache of surfaces to be reused\n"
+"  -i	iterations; specify the number of iterations per test case\n"
+"  -l	list only; just list selected test case names without executing\n"
 "  -r	raw; display each time measurement instead of summary statistics\n"
 "  -s	sync; only sum the elapsed time of the indiviual operations\n"
+"  -t	tile size; draw to tiled surfaces\n"
 "  -v	verbose; in raw mode also show the summaries\n"
-"  -i	iterations; specify the number of iterations per test case\n"
-"  -x   exclude; specify a file to read a list of traces to exclude\n"
-"  -l	list only; just list selected test case names without executing\n"
+"  -x	exclude; specify a file to read a list of traces to exclude\n"
 "\n"
 "If test names are given they are used as sub-string matches so a command\n"
-"such as \"cairo-perf-trace firefox\" can be used to run all firefox traces.\n"
+"such as \"%s firefox\" can be used to run all firefox traces.\n"
 "Alternatively, you can specify a list of filenames to execute.\n",
 	     argv0, argv0);
 }
@@ -445,24 +446,19 @@ parse_options (cairo_perf_t *perf,
     perf->num_exclude_names = 0;
 
     while (1) {
-	c = _cairo_getopt (argc, argv, "t:i:x:lsrvc");
+	c = _cairo_getopt (argc, argv, "ci:lrst:vx:");
 	if (c == -1)
 	    break;
 
 	switch (c) {
+	case 'c':
+	    use_surface_cache = 1;
+	    break;
 	case 'i':
 	    perf->exact_iterations = TRUE;
 	    perf->iterations = strtoul (optarg, &end, 10);
 	    if (*end != '\0') {
 		fprintf (stderr, "Invalid argument for -i (not an integer): %s\n",
-			 optarg);
-		exit (1);
-	    }
-	    break;
-	case 't':
-	    perf->tile_size = strtoul (optarg, &end, 10);
-	    if (*end != '\0') {
-		fprintf (stderr, "Invalid argument for -t (not an integer): %s\n",
 			 optarg);
 		exit (1);
 	    }
@@ -477,11 +473,16 @@ parse_options (cairo_perf_t *perf,
 	case 's':
 	    perf->observe = TRUE;
 	    break;
+	case 't':
+	    perf->tile_size = strtoul (optarg, &end, 10);
+	    if (*end != '\0') {
+		fprintf (stderr, "Invalid argument for -t (not an integer): %s\n",
+			 optarg);
+		exit (1);
+	    }
+	    break;
 	case 'v':
 	    verbose = 1;
-	    break;
-	case 'c':
-	    use_surface_cache = 1;
 	    break;
 	case 'x':
 	    if (! read_excludes (perf, optarg)) {
@@ -698,7 +699,6 @@ cairo_perf_trace (cairo_perf_t			   *perf,
 					       1, 1,
 					       1, 1,
 					       CAIRO_BOILERPLATE_MODE_PERF,
-					       0,
 					       &args.closure);
 	if (perf->observe) {
 	    cairo_surface_t *obs;

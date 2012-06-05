@@ -37,6 +37,7 @@
 
 #include "cairoint.h"
 
+#include "cairo-clip-inline.h"
 #include "cairo-error-private.h"
 #include "cairo-pattern-private.h"
 #include "cairo-surface-wrapper-private.h"
@@ -122,18 +123,10 @@ _cairo_surface_wrapper_get_clip (cairo_surface_wrapper_t *wrapper,
     copy = _cairo_clip_copy (clip);
     if (wrapper->has_extents) {
 	copy = _cairo_clip_intersect_rectangle (copy, &wrapper->extents);
-	if (wrapper->extents.x | wrapper->extents.y)
-	    copy = _cairo_clip_translate (copy,
-					  -wrapper->extents.x,
-					  -wrapper->extents.y);
     }
     copy = _cairo_clip_transform (copy, &wrapper->transform);
-    if (! _cairo_matrix_is_identity (&wrapper->target->device_transform)) {
-	/* XXX */
-	copy = _cairo_clip_translate (copy,
-				      wrapper->target->device_transform.x0,
-				      wrapper->target->device_transform.y0);
-    }
+    if (! _cairo_matrix_is_identity (&wrapper->target->device_transform))
+	copy = _cairo_clip_transform (copy, &wrapper->target->device_transform);
     if (wrapper->clip)
 	copy = _cairo_clip_intersect_clip (copy, wrapper->clip);
 
@@ -424,7 +417,9 @@ _cairo_surface_wrapper_show_text_glyphs (cairo_surface_wrapper_t *wrapper,
     cairo_clip_t *dev_clip;
     cairo_glyph_t stack_glyphs [CAIRO_STACK_ARRAY_LENGTH(cairo_glyph_t)];
     cairo_glyph_t *dev_glyphs = stack_glyphs;
+    cairo_scaled_font_t *dev_scaled_font = scaled_font;
     cairo_pattern_union_t source_copy;
+    cairo_font_options_t options;
 
     if (unlikely (wrapper->target->status))
 	return wrapper->target->status;
@@ -433,11 +428,26 @@ _cairo_surface_wrapper_show_text_glyphs (cairo_surface_wrapper_t *wrapper,
     if (_cairo_clip_is_all_clipped (dev_clip))
 	return CAIRO_INT_STATUS_NOTHING_TO_DO;
 
+    cairo_surface_get_font_options (wrapper->target, &options);
+    cairo_font_options_merge (&options, &scaled_font->options);
+
     if (wrapper->needs_transform) {
 	cairo_matrix_t m;
 	int i;
 
 	_cairo_surface_wrapper_get_transform (wrapper, &m);
+
+	if (! _cairo_matrix_is_translation (&wrapper->transform)) {
+	    cairo_matrix_t ctm;
+
+	    /* XXX No device-transform? A bug in the tangle of layers? */
+	    _cairo_matrix_multiply (&ctm,
+				    &wrapper->transform,
+				    &scaled_font->ctm);
+	    dev_scaled_font = cairo_scaled_font_create (scaled_font->font_face,
+							&scaled_font->font_matrix,
+							&ctm, &options);
+	}
 
 	if (num_glyphs > ARRAY_LENGTH (stack_glyphs)) {
 	    dev_glyphs = _cairo_malloc_ab (num_glyphs, sizeof (cairo_glyph_t));
@@ -460,6 +470,13 @@ _cairo_surface_wrapper_show_text_glyphs (cairo_surface_wrapper_t *wrapper,
 	_copy_transformed_pattern (&source_copy.base, source, &m);
 	source = &source_copy.base;
     } else {
+	if (! cairo_font_options_equal (&options, &scaled_font->options)) {
+	    dev_scaled_font = cairo_scaled_font_create (scaled_font->font_face,
+							&scaled_font->font_matrix,
+							&scaled_font->ctm,
+							&options);
+	}
+
 	/* show_text_glyphs is special because _cairo_surface_show_text_glyphs is allowed
 	 * to modify the glyph array that's passed in.  We must always
 	 * copy the array before handing it to the backend.
@@ -480,12 +497,14 @@ _cairo_surface_wrapper_show_text_glyphs (cairo_surface_wrapper_t *wrapper,
 					      dev_glyphs, num_glyphs,
 					      clusters, num_clusters,
 					      cluster_flags,
-					      scaled_font,
+					      dev_scaled_font,
 					      dev_clip);
  FINISH:
     _cairo_clip_destroy (dev_clip);
     if (dev_glyphs != stack_glyphs)
 	free (dev_glyphs);
+    if (dev_scaled_font != scaled_font)
+	cairo_scaled_font_destroy (dev_scaled_font);
     return status;
 }
 

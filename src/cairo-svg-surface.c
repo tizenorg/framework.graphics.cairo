@@ -50,7 +50,7 @@
 #include "cairo-error-private.h"
 #include "cairo-image-info-private.h"
 #include "cairo-image-surface-private.h"
-#include "cairo-recording-surface-private.h"
+#include "cairo-recording-surface-inline.h"
 #include "cairo-output-stream-private.h"
 #include "cairo-path-fixed-private.h"
 #include "cairo-paginated-private.h"
@@ -66,14 +66,16 @@
  *
  * The SVG surface is used to render cairo graphics to
  * SVG files and is a multi-page vector surface backend.
- */
+ **/
 
 /**
  * CAIRO_HAS_SVG_SURFACE:
  *
  * Defined if the SVG surface backend is available.
  * This macro can be used to conditionally compile backend-specific code.
- */
+ *
+ * Since: 1.2
+ **/
 
 typedef struct cairo_svg_page cairo_svg_page_t;
 
@@ -86,6 +88,14 @@ static const cairo_svg_version_t _cairo_svg_versions[] =
 };
 
 #define CAIRO_SVG_VERSION_LAST ARRAY_LENGTH (_cairo_svg_versions)
+
+static const char *_cairo_svg_supported_mime_types[] =
+{
+    CAIRO_MIME_TYPE_JPEG,
+    CAIRO_MIME_TYPE_PNG,
+    CAIRO_MIME_TYPE_URI,
+    NULL
+};
 
 static void
 _cairo_svg_surface_emit_path (cairo_output_stream_t	*output,
@@ -197,7 +207,7 @@ static const cairo_paginated_surface_backend_t cairo_svg_surface_paginated_backe
  * occurs. You can use cairo_surface_status() to check for this.
  *
  * Since: 1.2
- */
+ **/
 cairo_surface_t *
 cairo_svg_surface_create_for_stream (cairo_write_func_t		 write_func,
 				     void			*closure,
@@ -2035,6 +2045,7 @@ _cairo_svg_surface_emit_pattern (cairo_svg_surface_t   *surface,
 						       output, is_stroke, parent_matrix);
 
     case CAIRO_PATTERN_TYPE_MESH:
+    case CAIRO_PATTERN_TYPE_RASTER_SOURCE:
 	ASSERT_NOT_REACHED;
     }
     return _cairo_error (CAIRO_STATUS_PATTERN_TYPE_MISMATCH);
@@ -2576,6 +2587,13 @@ _cairo_svg_surface_get_font_options (void                  *abstract_surface,
     _cairo_font_options_set_round_glyph_positions (options, CAIRO_ROUND_GLYPH_POS_OFF);
 }
 
+
+static const char **
+_cairo_svg_surface_get_supported_mime_types (void	   *abstract_surface)
+{
+    return _cairo_svg_supported_mime_types;
+}
+
 static const cairo_surface_backend_t cairo_svg_surface_backend = {
 	CAIRO_SURFACE_TYPE_SVG,
 	_cairo_svg_surface_finish,
@@ -2587,6 +2605,7 @@ static const cairo_surface_backend_t cairo_svg_surface_backend = {
 	NULL, /* map to image */
 	NULL, /* unmap image */
 
+	_cairo_surface_default_source,
 	NULL, /* acquire_source_image */
 	NULL, /* release_source_image */
 	NULL, /* snapshot */
@@ -2606,6 +2625,9 @@ static const cairo_surface_backend_t cairo_svg_surface_backend = {
 	_cairo_svg_surface_fill,
 	_cairo_svg_surface_fill_stroke,
 	_cairo_svg_surface_show_glyphs,
+	NULL, /* has_show_text_glyphs */
+	NULL, /* show_text_glyphs */
+	_cairo_svg_surface_get_supported_mime_types,
 };
 
 static cairo_status_t

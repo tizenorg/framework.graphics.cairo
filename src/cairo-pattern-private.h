@@ -39,6 +39,7 @@
 #include "cairo-error-private.h"
 #include "cairo-types-private.h"
 #include "cairo-list-private.h"
+#include "cairo-surface-private.h"
 
 #include <stdio.h> /* FILE* */
 
@@ -167,6 +168,22 @@ typedef struct _cairo_mesh_pattern {
     cairo_bool_t has_color[4];
 } cairo_mesh_pattern_t;
 
+typedef struct _cairo_raster_source_pattern {
+    cairo_pattern_t base;
+
+    cairo_content_t content;
+    cairo_rectangle_int_t extents;
+
+    cairo_raster_source_acquire_func_t acquire;
+    cairo_raster_source_release_func_t release;
+    cairo_raster_source_snapshot_func_t snapshot;
+    cairo_raster_source_copy_func_t copy;
+    cairo_raster_source_finish_func_t finish;
+
+    /* an explicit pre-allocated member in preference to the general user-data */
+    void *user_data;
+} cairo_raster_source_pattern_t;
+
 typedef union {
     cairo_pattern_t		    base;
 
@@ -174,8 +191,8 @@ typedef union {
     cairo_surface_pattern_t	    surface;
     cairo_gradient_pattern_union_t  gradient;
     cairo_mesh_pattern_t	    mesh;
+    cairo_raster_source_pattern_t   raster_source;
 } cairo_pattern_union_t;
-
 
 /* cairo-pattern.c */
 
@@ -185,6 +202,10 @@ _cairo_pattern_create_in_error (cairo_status_t status);
 cairo_private cairo_status_t
 _cairo_pattern_create_copy (cairo_pattern_t	  **pattern,
 			    const cairo_pattern_t  *other);
+
+cairo_private void
+_cairo_pattern_init (cairo_pattern_t *pattern,
+		     cairo_pattern_type_t type);
 
 cairo_private cairo_status_t
 _cairo_pattern_init_copy (cairo_pattern_t	*pattern,
@@ -306,17 +327,6 @@ cairo_private cairo_bool_t
 _cairo_pattern_equal (const cairo_pattern_t *a,
 		      const cairo_pattern_t *b);
 
-static inline void
-_cairo_pattern_add_observer (cairo_pattern_t *pattern,
-			     cairo_pattern_observer_t *observer,
-			     void (*func) (cairo_pattern_observer_t *,
-					   cairo_pattern_t *,
-					   unsigned int))
-{
-    observer->notify = func;
-    cairo_list_add (&observer->link, &pattern->observers);
-}
-
 /* cairo-mesh-pattern-rasterizer.c */
 
 cairo_private void
@@ -328,11 +338,28 @@ _cairo_mesh_pattern_rasterize (const cairo_mesh_pattern_t *mesh,
 			       double                      x_offset,
 			       double                      y_offset);
 
+cairo_private cairo_surface_t *
+_cairo_raster_source_pattern_acquire (const cairo_pattern_t *abstract_pattern,
+				      cairo_surface_t *target,
+				      const cairo_rectangle_int_t *extents);
+
+cairo_private void
+_cairo_raster_source_pattern_release (const cairo_pattern_t *abstract_pattern,
+				      cairo_surface_t *surface);
+
+cairo_private cairo_status_t
+_cairo_raster_source_pattern_snapshot (cairo_pattern_t *abstract_pattern);
+
+cairo_private cairo_status_t
+_cairo_raster_source_pattern_init_copy (cairo_pattern_t *pattern,
+					const cairo_pattern_t *other);
+
+cairo_private void
+_cairo_raster_source_pattern_finish (cairo_pattern_t *abstract_pattern);
+
 cairo_private void
 _cairo_debug_print_pattern (FILE *file, const cairo_pattern_t *pattern);
 
 CAIRO_END_DECLS
 
 #endif /* CAIRO_PATTERN_PRIVATE */
-
-

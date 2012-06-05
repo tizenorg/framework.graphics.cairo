@@ -72,7 +72,6 @@ _cairo_boilerplate_egl_create_surface (const char		 *name,
 				       double			  max_width,
 				       double			  max_height,
 				       cairo_boilerplate_mode_t   mode,
-				       int			  id,
 				       void			**closure)
 {
     egl_target_closure_t *gltc;
@@ -131,6 +130,11 @@ _cairo_boilerplate_egl_create_surface (const char		 *name,
     }
 
     gltc->device = cairo_egl_device_create (gltc->dpy, gltc->ctx);
+
+    if (width < 1)
+	width = 1;
+    if (height < 1)
+	height = 1;
 
     gltc->surface = surface = cairo_gl_surface_create (gltc->device,
 						       content,

@@ -41,6 +41,7 @@
 #include "cairo-xlib-xrender-private.h"
 #include "cairo-freelist-private.h"
 #include "cairo-error-private.h"
+#include "cairo-list-inline.h"
 
 #include <X11/Xlibint.h>	/* For XESetCloseDisplay */
 
@@ -146,8 +147,19 @@ static const cairo_device_backend_t _cairo_xlib_device_backend = {
     _cairo_xlib_display_destroy,
 };
 
+
+static void _cairo_xlib_display_select_compositor (cairo_xlib_display_t *display)
+{
+    if (display->render_major > 0 || display->render_minor >= 4)
+	display->compositor = _cairo_xlib_traps_compositor_get ();
+    else if (display->render_major > 0 || display->render_minor >= 0)
+	display->compositor = _cairo_xlib_mask_compositor_get ();
+    else
+	display->compositor = _cairo_xlib_core_compositor_get ();
+}
+
 /**
- * cairo_xlib_device_create:
+ * _cairo_xlib_device_create:
  * @dpy: the display to create the device for
  *
  * Gets the device belonging to @dpy, or creates it if it doesn't exist yet.
@@ -220,6 +232,8 @@ _cairo_xlib_device_create (Display *dpy)
 	    display->render_minor = max_render_minor;
 	}
     }
+
+    _cairo_xlib_display_select_compositor (display);
 
     codes = XAddExtension (dpy);
     if (unlikely (codes == NULL)) {
@@ -330,13 +344,6 @@ _cairo_xlib_device_create (Display *dpy)
 	display->buggy_gradients = TRUE;
 	display->buggy_pad_reflect = TRUE;
     }
-
-    if (display->render_major > 0 || display->render_minor >= 4)
-	display->compositor = _cairo_xlib_traps_compositor_get ();
-    else if (display->render_major > 0 || display->render_minor >= 0)
-	display->compositor = _cairo_xlib_mask_compositor_get ();
-    else
-	display->compositor = _cairo_xlib_core_compositor_get ();
 
     display->next = _cairo_xlib_display_list;
     _cairo_xlib_display_list = display;
@@ -552,6 +559,55 @@ _cairo_xlib_display_has_gradients (cairo_device_t *device)
     return ! ((cairo_xlib_display_t *) device)->buggy_gradients;
 }
 
+/**
+ * cairo_xlib_device_debug_cap_xrender_version:
+ * @device: a #cairo_device_t for the Xlib backend
+ * @major_version: major version to restrict to
+ * @minor_version: minor version to restrict to
+ *
+ * Restricts all future Xlib surfaces for this devices to the specified version
+ * of the RENDER extension. This function exists solely for debugging purpose.
+ * It let's you find out how cairo would behave with an older version of
+ * the RENDER extension.
+ *
+ * Use the special values -1 and -1 for disabling the RENDER extension.
+ *
+ * Since: 1.12
+ **/
+void
+cairo_xlib_device_debug_cap_xrender_version (cairo_device_t *device,
+					     int major_version,
+					     int minor_version)
+{
+    cairo_xlib_display_t *display = (cairo_xlib_display_t *) device;
+
+    if (device == NULL || device->status)
+	return;
+
+    if (device->backend->type != CAIRO_DEVICE_TYPE_XLIB)
+	return;
+
+    if (major_version < display->render_major ||
+	(major_version == display->render_major &&
+	 minor_version < display->render_minor))
+    {
+	display->render_major = major_version;
+	display->render_minor = minor_version;
+    }
+
+    _cairo_xlib_display_select_compositor (display);
+}
+
+/**
+ * cairo_xlib_device_debug_set_precision:
+ * @device: a #cairo_device_t for the Xlib backend
+ * @precision: the precision to use
+ *
+ * Render supports two modes of precision when rendering trapezoids. Set
+ * the precision to the desired mode.
+ *
+ * Since: 1.12
+ **/
 void
 cairo_xlib_device_debug_set_precision (cairo_device_t *device,
 				       int precision)
@@ -569,6 +625,16 @@ cairo_xlib_device_debug_set_precision (cairo_device_t *device,
     ((cairo_xlib_display_t *) device)->force_precision = precision;
 }
 
+/**
+ * cairo_xlib_device_debug_get_precision:
+ * @device: a #cairo_device_t for the Xlib backend
+ *
+ * Get the Xrender precision mode.
+ *
+ * Returns: the render precision mode
+ *
+ * Since: 1.12
+ **/
 int
 cairo_xlib_device_debug_get_precision (cairo_device_t *device)
 {

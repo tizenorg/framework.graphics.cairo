@@ -1,8 +1,8 @@
 Source: cairo
 Section: libs
 Priority: optional
-Maintainer: Wonsik Jung <sidein@samsung.com>, Deokjin Kim <deokjin81.kim@samsung.com>, Seongwon Cho <seongwon1.cho@samsung.com>
-Build-Depends: debhelper (>= 5.0.22), autotools-dev, pkg-config (>= 0.19), libfontconfig1-dev, libfreetype6-dev (>= 2.1.10), libxrender-dev (>= 0.6.0), libx11-dev, libpng12-dev, libsm-dev, xutils-dev, libxt-dev, dpatch, libpixman-1-dev (>= 0.12.0), libxcb1-dev (>= 0.9.92), libxcb-render0-dev (>= 0.9.92), libxcb-render-util0-dev, libglib2.0-dev, libxcb-shm0-dev
+Maintainer: Wonsik Jung <sidein@samsung.com>, Deokjin Kim <deokjin81.kim@samsung.com>, Seongwon Cho <seongwon1.cho@samsung.com>, Dongyeon Kim <dy5.kim@samsung.com>
+Build-Depends: debhelper (>= 5.0.22), autotools-dev, pkg-config (>= 0.19), libfontconfig1-dev, libfreetype6-dev (>= 2.1.10), libxrender-dev (>= 0.6.0), libx11-dev, libpng12-dev, libsm-dev, xutils-dev, libxt-dev, dpatch, libpixman-1-dev (>= 0.12.0), libxcb1-dev (>= 0.9.92), libxcb-render0-dev (>= 0.9.92), libxcb-render-util0-dev, libglib2.0-dev, libxcb-shm0-dev, opengl-es-dev
 Standards-Version: 3.8.2
 
 Package: libcairo2-dev
@@ -11,7 +11,7 @@ Conflicts: libcairo-dev, libcairo0.5.1-dev, libcairo0.6.0-dev, libcairo0.9.0-dev
 Replaces: libcairo0.5.1-dev, libcairo0.6.0-dev, libcairo0.9.0-dev
 Section: libdevel
 Architecture: any
-Depends: libcairo2 (= ${binary:Version}), libfontconfig1-dev, libfreetype6-dev (>= 2.1.10), libxrender-dev (>= 0.6.0), libpng12-dev, libsm-dev, libpixman-1-dev (>= 0.12.0), libxcb1-dev, libxcb-render0-dev, libxcb-render-util0-dev, libxcb-shm0-dev
+Depends: libcairo2 (= ${binary:Version}), libfontconfig1-dev, libfreetype6-dev (>= 2.1.10), libxrender-dev (>= 0.6.0), libpng12-dev, libsm-dev, libpixman-1-dev (>= 0.12.0), libxcb1-dev, libxcb-render0-dev, libxcb-render-util0-dev, libxcb-shm0-dev, opengl-es-dev
 Description: Development files for the Cairo 2D graphics library
  Cairo is a multi-platform library providing anti-aliased
  vector-based rendering for multiple target backends.

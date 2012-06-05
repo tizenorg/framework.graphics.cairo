@@ -124,7 +124,6 @@ typedef cairo_surface_t *
 				       double			  max_width,
 				       double			  max_height,
 				       cairo_boilerplate_mode_t   mode,
-				       int			  id,
 				       void			**closure);
 
 typedef cairo_surface_t *
@@ -218,7 +217,9 @@ enum {
 FILE *
 cairo_boilerplate_open_any2ppm (const char   *filename,
 				int	      page,
-				unsigned int  flags);
+				unsigned int  flags,
+				int        (**close_cb) (FILE *));
+
 cairo_surface_t *
 cairo_boilerplate_image_surface_create_from_ppm_stream (FILE *file);
 

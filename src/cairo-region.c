@@ -52,7 +52,7 @@
  * Regions are a simple graphical data type representing an area of 
  * integer-aligned rectangles. They are often used on raster surfaces 
  * to track areas of interest, such as change or clip areas.
- */
+ **/
 
 static const cairo_region_t _cairo_region_nil = {
     CAIRO_REFERENCE_COUNT_INVALID,	/* ref_count */
@@ -276,6 +276,38 @@ cairo_region_create_rectangles (const cairo_rectangle_int_t *rects,
 }
 slim_hidden_def (cairo_region_create_rectangles);
 
+cairo_region_t *
+_cairo_region_create_from_boxes (const cairo_box_t *boxes, int count)
+{
+    cairo_region_t *region;
+
+    region = _cairo_malloc (sizeof (cairo_region_t));
+    if (unlikely (region == NULL))
+	return _cairo_region_create_in_error (_cairo_error (CAIRO_STATUS_NO_MEMORY));
+
+    CAIRO_REFERENCE_COUNT_INIT (&region->ref_count, 1);
+    region->status = CAIRO_STATUS_SUCCESS;
+
+    if (! pixman_region32_init_rects (&region->rgn,
+				      (pixman_box32_t *)boxes, count)) {
+	free (region);
+	return _cairo_region_create_in_error (_cairo_error (CAIRO_STATUS_NO_MEMORY));
+    }
+
+    return region;
+}
+
+cairo_box_t *
+_cairo_region_get_boxes (const cairo_region_t *region, int *nbox)
+{
+    if (region->status) {
+	nbox = 0;
+	return NULL;
+    }
+
+    return (cairo_box_t *) pixman_region32_rectangles (CONST_CAST &region->rgn, nbox);
+}
+
 /**
  * cairo_region_create_rectangle:
  * @rectangle: a #cairo_rectangle_int_t
@@ -484,7 +516,7 @@ slim_hidden_def (cairo_region_get_extents);
  * cairo_region_status:
  * @region: a #cairo_region_t
  *
- * Checks whether an error has previous occured for this
+ * Checks whether an error has previous occurred for this
  * region object.
  *
  * Return value: %CAIRO_STATUS_SUCCESS or %CAIRO_STATUS_NO_MEMORY
@@ -810,13 +842,15 @@ slim_hidden_def (cairo_region_translate);
 
 /**
  * cairo_region_overlap_t:
- * @CAIRO_REGION_OVERLAP_IN: The contents are entirely inside the region
- * @CAIRO_REGION_OVERLAP_OUT: The contents are entirely outside the region
+ * @CAIRO_REGION_OVERLAP_IN: The contents are entirely inside the region. (Since 1.10)
+ * @CAIRO_REGION_OVERLAP_OUT: The contents are entirely outside the region. (Since 1.10)
  * @CAIRO_REGION_OVERLAP_PART: The contents are partially inside and
- *     partially outside the region.
- * 
+ *     partially outside the region. (Since 1.10)
+ *
  * Used as the return value for cairo_region_contains_rectangle().
- */
+ *
+ * Since: 1.10
+ **/
 
 /**
  * cairo_region_contains_rectangle:

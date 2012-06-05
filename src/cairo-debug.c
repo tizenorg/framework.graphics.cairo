@@ -56,6 +56,8 @@
  * functions have been called as necessary). If there are active cairo
  * objects, this call is likely to cause a crash, (eg. an assertion
  * failure due to a hash table being destroyed when non-empty).
+ *
+ * Since: 1.0
  **/
 void
 cairo_debug_reset_static_data (void)
@@ -89,6 +91,10 @@ cairo_debug_reset_static_data (void)
 #endif
 
     _cairo_default_context_reset_static_data ();
+
+#if CAIRO_HAS_COGL_SURFACE
+    _cairo_cogl_context_reset_static_data ();
+#endif
 
     CAIRO_MUTEX_FINALIZE ();
 }

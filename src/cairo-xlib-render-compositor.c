@@ -48,6 +48,7 @@
 
 #include "cairo-compositor-private.h"
 #include "cairo-image-surface-private.h"
+#include "cairo-list-inline.h"
 #include "cairo-pattern-private.h"
 #include "cairo-traps-private.h"
 #include "cairo-tristrip-private.h"
@@ -180,6 +181,13 @@ copy_boxes (void *_dst,
 	return status;
     }
 
+    if (! src->owns_pixmap) {
+	XGCValues gcv;
+
+	gcv.subwindow_mode = IncludeInferiors;
+	XChangeGC (dst->display->display, gc, GCSubwindowMode, &gcv);
+    }
+
     if (boxes->num_boxes == 1) {
 	int x1 = _cairo_fixed_integer_part (boxes->chunks.base[0].p1.x);
 	int y1 = _cairo_fixed_integer_part (boxes->chunks.base[0].p1.y);
@@ -191,43 +199,74 @@ copy_boxes (void *_dst,
 		   x2 - x1, y2 - y1,
 		   x1,      y1);
     } else {
-	XRectangle stack_rects[CAIRO_STACK_ARRAY_LENGTH (XRectangle)];
-	XRectangle *rects = stack_rects;
-
-	if (boxes->num_boxes > ARRAY_LENGTH (stack_rects)) {
-	    rects = _cairo_malloc_ab (boxes->num_boxes, sizeof (XRectangle));
-	    if (unlikely (rects == NULL))
-		return _cairo_error (CAIRO_STATUS_NO_MEMORY);
-	}
-
-	j = 0;
-	for (chunk = &boxes->chunks; chunk; chunk = chunk->next) {
-	    for (i = 0; i < chunk->count; i++) {
-		int x1 = _cairo_fixed_integer_part (chunk->base[i].p1.x);
-		int y1 = _cairo_fixed_integer_part (chunk->base[i].p1.y);
-		int x2 = _cairo_fixed_integer_part (chunk->base[i].p2.x);
-		int y2 = _cairo_fixed_integer_part (chunk->base[i].p2.y);
-
-		rects[j].x = x1;
-		rects[j].y = y1;
-		rects[j].width  = x2 - x1;
-		rects[j].height = y2 - y1;
-		j++;
+	/* We can only have a single control for subwindow_mode on the
+	 * GC. If we have a Window destination, we need to set ClipByChildren,
+	 * but if we have a Window source, we need IncludeInferiors. If we have
+	 * both a Window destination and source, we must fallback. There is
+	 * no convenient way to detect if a drawable is a Pixmap or Window,
+	 * therefore we can only rely on those surfaces that we created
+	 * ourselves to be Pixmaps, and treat everything else as a potential
+	 * Window.
+	 */
+	if (src == dst || (!src->owns_pixmap && !dst->owns_pixmap)) {
+	    for (chunk = &boxes->chunks; chunk; chunk = chunk->next) {
+		for (i = 0; i < chunk->count; i++) {
+		    int x1 = _cairo_fixed_integer_part (chunk->base[i].p1.x);
+		    int y1 = _cairo_fixed_integer_part (chunk->base[i].p1.y);
+		    int x2 = _cairo_fixed_integer_part (chunk->base[i].p2.x);
+		    int y2 = _cairo_fixed_integer_part (chunk->base[i].p2.y);
+		    XCopyArea (dst->dpy, src->drawable, dst->drawable, gc,
+			       x1 + dx, y1 + dy,
+			       x2 - x1, y2 - y1,
+			       x1,      y1);
+		}
 	    }
+	} else {
+	    XRectangle stack_rects[CAIRO_STACK_ARRAY_LENGTH (XRectangle)];
+	    XRectangle *rects = stack_rects;
+
+	    if (boxes->num_boxes > ARRAY_LENGTH (stack_rects)) {
+		rects = _cairo_malloc_ab (boxes->num_boxes, sizeof (XRectangle));
+		if (unlikely (rects == NULL))
+		    return _cairo_error (CAIRO_STATUS_NO_MEMORY);
+	    }
+
+	    j = 0;
+	    for (chunk = &boxes->chunks; chunk; chunk = chunk->next) {
+		for (i = 0; i < chunk->count; i++) {
+		    int x1 = _cairo_fixed_integer_part (chunk->base[i].p1.x);
+		    int y1 = _cairo_fixed_integer_part (chunk->base[i].p1.y);
+		    int x2 = _cairo_fixed_integer_part (chunk->base[i].p2.x);
+		    int y2 = _cairo_fixed_integer_part (chunk->base[i].p2.y);
+
+		    rects[j].x = x1;
+		    rects[j].y = y1;
+		    rects[j].width  = x2 - x1;
+		    rects[j].height = y2 - y1;
+		    j++;
+		}
+	    }
+	    assert (j == boxes->num_boxes);
+
+	    XSetClipRectangles (dst->dpy, gc, 0, 0, rects, j, Unsorted);
+
+	    XCopyArea (dst->dpy, src->drawable, dst->drawable, gc,
+		       extents->x + dx, extents->y + dy,
+		       extents->width,  extents->height,
+		       extents->x,      extents->y);
+
+	    XSetClipMask (dst->dpy, gc, None);
+
+	    if (rects != stack_rects)
+		free (rects);
 	}
-	assert (j == boxes->num_boxes);
+    }
 
-	XSetClipRectangles (dst->dpy, gc, 0, 0, rects, j, YSorted);
+    if (! src->owns_pixmap) {
+	XGCValues gcv;
 
-	XCopyArea (dst->dpy, src->drawable, dst->drawable, gc,
-		   extents->x + dx, extents->y + dy,
-		   extents->width,  extents->height,
-		   extents->x,      extents->y);
-
-	XSetClipMask (dst->dpy, gc, None);
-
-	if (rects != stack_rects)
-	    free (rects);
+	gcv.subwindow_mode = ClipByChildren;
+	XChangeGC (dst->display->display, gc, GCSubwindowMode, &gcv);
     }
 
     _cairo_xlib_surface_put_gc (dst->display, dst, gc);
@@ -313,8 +352,12 @@ fill_reduces_to_source (cairo_operator_t op,
 			const cairo_color_t *color,
 			cairo_xlib_surface_t *dst)
 {
-    if (dst->base.is_clear || CAIRO_COLOR_IS_OPAQUE (color))
-	return op == CAIRO_OPERATOR_OVER || op == CAIRO_OPERATOR_ADD;
+    if (dst->base.is_clear || CAIRO_COLOR_IS_OPAQUE (color)) {
+	if (op == CAIRO_OPERATOR_OVER)
+	    return TRUE;
+	if (op == CAIRO_OPERATOR_ADD)
+	    return (dst->base.content & CAIRO_CONTENT_COLOR) == 0;
+    }
 
     return FALSE;
 }
@@ -1175,8 +1218,8 @@ _emit_glyphs_chunk (cairo_xlib_display_t *display,
 	  }
 	  elts[nelt].chars = char8 + size * j;
 	  elts[nelt].glyphset = info->glyphset;
-	  elts[nelt].xOff = glyphs[i].i.x;
-	  elts[nelt].yOff = glyphs[i].i.y;
+	  elts[nelt].xOff = glyphs[i].i.x - dst_x;
+	  elts[nelt].yOff = glyphs[i].i.y - dst_y;
       }
 
       switch (width) {
@@ -1203,9 +1246,9 @@ _emit_glyphs_chunk (cairo_xlib_display_t *display,
 			 src->picture,
 			 dst->picture,
 			 use_mask ? info->xrender_format : NULL,
-			 src_x + elts[0].xOff,
-			 src_y + elts[0].yOff,
-			 elts[0].xOff - dst_x, elts[0].yOff - dst_y,
+			 src_x + elts[0].xOff + dst_x,
+			 src_y + elts[0].yOff + dst_y,
+			 elts[0].xOff, elts[0].yOff,
 			 (XGlyphElt8 *) elts, nelt);
 
     if (elts != stack_elts)
@@ -1429,6 +1472,7 @@ _cairo_xlib_mask_compositor_get (void)
 	compositor.draw_image_boxes = draw_image_boxes;
 	compositor.fill_rectangles = fill_rectangles;
 	compositor.fill_boxes = fill_boxes;
+	compositor.copy_boxes = copy_boxes;
 	//compositor.check_composite = check_composite;
 	compositor.composite = composite;
 	//compositor.check_composite_boxes = check_composite_boxes;
@@ -1516,6 +1560,12 @@ composite_traps (void			*abstract_dst,
     int i;
 
     //X_DEBUG ((display->display, "composite_trapezoids (dst=%x)", (unsigned int) dst->drawable));
+
+    if (dst->base.is_clear &&
+	(op == CAIRO_OPERATOR_OVER || op == CAIRO_OPERATOR_ADD))
+    {
+	op = CAIRO_OPERATOR_SOURCE;
+    }
 
     pict_format =
 	_cairo_xlib_display_get_xrender_format (display,
@@ -1654,6 +1704,17 @@ composite_tristrip (void		*abstract_dst,
     return CAIRO_STATUS_SUCCESS;
 }
 
+static cairo_int_status_t
+check_composite (const cairo_composite_rectangles_t *extents)
+{
+    cairo_xlib_display_t *display = ((cairo_xlib_surface_t *)extents->surface)->display;
+
+    if (! CAIRO_RENDER_SUPPORTS_OPERATOR (display, extents->op))
+	return CAIRO_INT_STATUS_UNSUPPORTED;
+
+    return CAIRO_STATUS_SUCCESS;
+}
+
 const cairo_compositor_t *
 _cairo_xlib_traps_compositor_get (void)
 {
@@ -1670,7 +1731,7 @@ _cairo_xlib_traps_compositor_get (void)
 	compositor.draw_image_boxes = draw_image_boxes;
 	compositor.copy_boxes = copy_boxes;
 	compositor.fill_boxes = fill_boxes;
-	//compositor.check_composite = check_composite;
+	compositor.check_composite = check_composite;
 	compositor.composite = composite;
 	compositor.lerp = lerp;
 	//compositor.check_composite_boxes = check_composite_boxes;

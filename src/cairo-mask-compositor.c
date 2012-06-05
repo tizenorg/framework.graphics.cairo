@@ -45,9 +45,10 @@
 
 #include "cairoint.h"
 
+#include "cairo-clip-inline.h"
 #include "cairo-compositor-private.h"
 #include "cairo-image-surface-private.h"
-#include "cairo-pattern-private.h"
+#include "cairo-pattern-inline.h"
 #include "cairo-region-private.h"
 #include "cairo-surface-observer-private.h"
 #include "cairo-surface-offset-private.h"
@@ -162,13 +163,31 @@ create_composite_mask (const cairo_mask_compositor_t *compositor,
     struct blt_in info;
     int i;
 
-    surface = _cairo_surface_create_similar_solid (dst,
-						   CAIRO_CONTENT_ALPHA,
-						   extents->bounded.width,
-						   extents->bounded.height,
-						   CAIRO_COLOR_TRANSPARENT);
+    surface = _cairo_surface_create_similar_scratch (dst, CAIRO_CONTENT_ALPHA,
+						     extents->bounded.width,
+						     extents->bounded.height);
     if (unlikely (surface->status))
 	return surface;
+
+    status = compositor->acquire (surface);
+    if (unlikely (status)) {
+	cairo_surface_destroy (surface);
+	return _cairo_surface_create_in_error (status);
+    }
+
+    if (!surface->is_clear) {
+	cairo_rectangle_int_t rect;
+
+	rect.x = rect.y = 0;
+	rect.width = extents->bounded.width;
+	rect.height = extents->bounded.height;
+
+	status = compositor->fill_rectangles (surface, CAIRO_OPERATOR_CLEAR,
+					      CAIRO_COLOR_TRANSPARENT,
+					      &rect, 1);
+	if (unlikely (status))
+	    goto error;
+    }
 
     if (mask_func) {
 	status = mask_func (compositor, surface, draw_closure,
@@ -176,7 +195,7 @@ create_composite_mask (const cairo_mask_compositor_t *compositor,
 			    extents->bounded.x, extents->bounded.y,
 			    &extents->bounded, extents->clip);
 	if (likely (status != CAIRO_INT_STATUS_UNSUPPORTED))
-	    return surface;
+	    goto out;
     }
 
     /* Is it worth setting the clip region here? */
@@ -184,10 +203,8 @@ create_composite_mask (const cairo_mask_compositor_t *compositor,
 			CAIRO_OPERATOR_ADD, NULL, NULL,
 			extents->bounded.x, extents->bounded.y,
 			&extents->bounded, NULL);
-    if (unlikely (status)) {
-	cairo_surface_destroy (surface);
-	return _cairo_surface_create_in_error (status);
-    }
+    if (unlikely (status))
+	goto error;
 
     info.compositor = compositor;
     info.dst = surface;
@@ -209,12 +226,21 @@ create_composite_mask (const cairo_mask_compositor_t *compositor,
 	status = _cairo_clip_combine_with_surface (extents->clip, surface,
 						   extents->bounded.x,
 						   extents->bounded.y);
-	if (unlikely (status)) {
-	    cairo_surface_destroy (surface);
-	    return _cairo_surface_create_in_error (status);
-	}
+	if (unlikely (status))
+	    goto error;
     }
 
+out:
+    compositor->release (surface);
+    surface->is_clear = FALSE;
+    return surface;
+
+error:
+    compositor->release (surface);
+    if (status != CAIRO_INT_STATUS_NOTHING_TO_DO) {
+	cairo_surface_destroy (surface);
+	surface = _cairo_surface_create_in_error (status);
+    }
     return surface;
 }
 
@@ -778,39 +804,30 @@ upload_boxes (const cairo_mask_compositor_t *compositor,
 {
     cairo_surface_t *dst = extents->surface;
     const cairo_pattern_t *source = &extents->source_pattern.base;
-    const cairo_surface_pattern_t *pattern;
     cairo_surface_t *src;
     cairo_rectangle_int_t limit;
     cairo_int_status_t status;
     int tx, ty;
 
-    pattern = (const cairo_surface_pattern_t *) source;
-    src = pattern->surface;
+    src = _cairo_pattern_get_source ((cairo_surface_pattern_t *)source, &limit);
     if (!(src->type == CAIRO_SURFACE_TYPE_IMAGE || src->type == dst->type))
 	return CAIRO_INT_STATUS_UNSUPPORTED;
 
     if (! _cairo_matrix_is_integer_translation (&source->matrix, &tx, &ty))
 	return CAIRO_INT_STATUS_UNSUPPORTED;
 
-    if (_cairo_surface_is_snapshot (src))
-	src = _cairo_surface_snapshot_get_target (src);
-    if (_cairo_surface_is_observer (src))
-	src = _cairo_surface_observer_get_target (src);
-    if (_cairo_surface_is_subsurface (src)) {
-	_cairo_surface_subsurface_offset (src, &tx, &ty);
-	src = _cairo_surface_subsurface_get_target (src);
-    }
-
     /* Check that the data is entirely within the image */
-    if (extents->bounded.x + tx < 0 || extents->bounded.y + ty < 0)
+    if (extents->bounded.x + tx < limit.x || extents->bounded.y + ty < limit.y)
 	return CAIRO_INT_STATUS_UNSUPPORTED;
 
-    _cairo_surface_get_extents (pattern->surface, &limit);
-    if (extents->bounded.x + extents->bounded.width  + tx > limit.width ||
-	extents->bounded.y + extents->bounded.height + ty > limit.height)
+    if (extents->bounded.x + extents->bounded.width  + tx > limit.x + limit.width ||
+	extents->bounded.y + extents->bounded.height + ty > limit.y + limit.height)
 	return CAIRO_INT_STATUS_UNSUPPORTED;
 
-    if (pattern->surface->type == CAIRO_SURFACE_TYPE_IMAGE)
+    tx += limit.x;
+    ty += limit.y;
+
+    if (src->type == CAIRO_SURFACE_TYPE_IMAGE)
 	status = compositor->draw_image_boxes (dst,
 					       (cairo_image_surface_t *)src,
 					       boxes, tx, ty);

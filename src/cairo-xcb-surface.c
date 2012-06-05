@@ -45,6 +45,7 @@
 
 #include "cairo-composite-rectangles-private.h"
 #include "cairo-default-context-private.h"
+#include "cairo-list-inline.h"
 #include "cairo-image-surface-private.h"
 #include "cairo-surface-backend-private.h"
 
@@ -65,14 +66,16 @@ slim_hidden_proto (cairo_xcb_surface_create_with_xrender_format);
  *
  * Note that the XCB surface automatically takes advantage of the X render
  * extension if it is available.
- */
+ **/
 
 /**
  * CAIRO_HAS_XCB_SURFACE:
  *
  * Defined if the xcb surface backend is available.
  * This macro can be used to conditionally compile backend-specific code.
- */
+ *
+ * Since: 1.12
+ **/
 
 cairo_surface_t *
 _cairo_xcb_surface_create_similar (void			*abstract_other,
@@ -172,6 +175,12 @@ _cairo_xcb_surface_create_similar_image (void			*abstract_other,
     cairo_status_t status;
     pixman_format_code_t pixman_format;
 
+    if (unlikely(width  > XLIB_COORD_MAX ||
+		 height > XLIB_COORD_MAX ||
+		 width  <= 0 ||
+		 height <= 0))
+	return NULL;
+
     pixman_format = _cairo_format_to_pixman_format_code (format);
 
     status = _cairo_xcb_shm_image_create (connection, pixman_format,
@@ -179,6 +188,7 @@ _cairo_xcb_surface_create_similar_image (void			*abstract_other,
 					  &shm_info);
     if (unlikely (status))
 	return _cairo_surface_create_in_error (status);
+
     return &image->base;
 }
 
@@ -229,7 +239,7 @@ _cairo_xcb_surface_create_shm_image (cairo_xcb_connection_t *connection,
 {
     cairo_surface_t *image;
     cairo_xcb_shm_info_t *shm_info;
-    cairo_status_t status;
+    cairo_int_status_t status;
     size_t stride;
 
     *shm_info_out = NULL;
@@ -240,8 +250,12 @@ _cairo_xcb_surface_create_shm_image (cairo_xcb_connection_t *connection,
 						      stride * height,
 						      might_reuse,
 						      &shm_info);
-    if (unlikely (status))
+    if (unlikely (status)) {
+	if (status == CAIRO_INT_STATUS_UNSUPPORTED)
+	    return NULL;
+
 	return _cairo_surface_create_in_error (status);
+    }
 
     image = _cairo_image_surface_create_with_pixman_format (shm_info->mem,
 							    pixman_format,
@@ -354,9 +368,7 @@ _get_image (cairo_xcb_surface_t		 *surface,
     if (use_shm) {
 	image = _get_shm_image (surface, x, y, width, height);
 	if (image) {
-	    /* XXX This only wants to catch SHM exhaustion,
-	     * not other allocation failures. */
-	    if (image->status != CAIRO_STATUS_NO_MEMORY) {
+	    if (image->status == CAIRO_STATUS_SUCCESS) {
 		_cairo_xcb_connection_release (connection);
 		return image;
 	    }
@@ -446,6 +458,21 @@ _get_image (cairo_xcb_surface_t		 *surface,
 FAIL:
     _cairo_xcb_connection_release (connection);
     return _cairo_surface_create_in_error (status);
+}
+
+static cairo_surface_t *
+_cairo_xcb_surface_source (void *abstract_surface,
+			   cairo_rectangle_int_t *extents)
+{
+    cairo_xcb_surface_t *surface = abstract_surface;
+
+    if (extents) {
+	extents->x = extents->y = 0;
+	extents->width  = surface->width;
+	extents->height = surface->height;
+    }
+
+    return &surface->base;
 }
 
 static cairo_status_t
@@ -1043,6 +1070,7 @@ const cairo_surface_backend_t _cairo_xcb_surface_backend = {
     _cairo_xcb_surface_map_to_image,
     _cairo_xcb_surface_unmap,
 
+    _cairo_xcb_surface_source,
     _cairo_xcb_surface_acquire_source_image,
     _cairo_xcb_surface_release_source_image,
     NULL, /* snapshot */
@@ -1147,7 +1175,7 @@ _cairo_xcb_screen_from_visual (xcb_connection_t *connection,
 
 /**
  * cairo_xcb_surface_create:
- * @xcb_connection: an XCB connection
+ * @connection: an XCB connection
  * @drawable: an XCB drawable
  * @visual: the visual to use for drawing to @drawable. The depth
  *          of the visual must match the depth of the drawable.
@@ -1175,9 +1203,11 @@ _cairo_xcb_screen_from_visual (xcb_connection_t *connection,
  * This function always returns a valid pointer, but it will return a
  * pointer to a "nil" surface if an error such as out of memory
  * occurs. You can use cairo_surface_status() to check for this.
+ *
+ * Since: 1.12
  **/
 cairo_surface_t *
-cairo_xcb_surface_create (xcb_connection_t  *xcb_connection,
+cairo_xcb_surface_create (xcb_connection_t  *connection,
 			  xcb_drawable_t     drawable,
 			  xcb_visualtype_t  *visual,
 			  int		     width,
@@ -1190,7 +1220,7 @@ cairo_xcb_surface_create (xcb_connection_t  *xcb_connection,
     xcb_render_pictformat_t xrender_format;
     int depth;
 
-    if (xcb_connection_has_error (xcb_connection))
+    if (xcb_connection_has_error (connection))
 	return _cairo_surface_create_in_error (_cairo_error (CAIRO_STATUS_WRITE_ERROR));
 
     if (unlikely (width > XLIB_COORD_MAX || height > XLIB_COORD_MAX))
@@ -1198,7 +1228,7 @@ cairo_xcb_surface_create (xcb_connection_t  *xcb_connection,
     if (unlikely (width <= 0 || height <= 0))
 	return _cairo_surface_create_in_error (_cairo_error (CAIRO_STATUS_INVALID_SIZE));
 
-    xcb_screen = _cairo_xcb_screen_from_visual (xcb_connection, visual, &depth);
+    xcb_screen = _cairo_xcb_screen_from_visual (connection, visual, &depth);
     if (unlikely (xcb_screen == NULL))
 	return _cairo_surface_create_in_error (_cairo_error (CAIRO_STATUS_INVALID_VISUAL));
 
@@ -1221,7 +1251,7 @@ cairo_xcb_surface_create (xcb_connection_t  *xcb_connection,
     if (! _pixman_format_from_masks (&image_masks, &pixman_format))
 	return _cairo_surface_create_in_error (_cairo_error (CAIRO_STATUS_INVALID_FORMAT));
 
-    screen = _cairo_xcb_screen_get (xcb_connection, xcb_screen);
+    screen = _cairo_xcb_screen_get (connection, xcb_screen);
     if (unlikely (screen == NULL))
 	return _cairo_surface_create_in_error (_cairo_error (CAIRO_STATUS_NO_MEMORY));
 
@@ -1240,11 +1270,11 @@ slim_hidden_def (cairo_xcb_surface_create);
 
 /**
  * cairo_xcb_surface_create_for_bitmap:
- * @xcb_connection: an XCB connection
- * @xcb_screen: the XCB screen associated with @bitmap
+ * @connection: an XCB connection
+ * @screen: the XCB screen associated with @bitmap
  * @bitmap: an XCB drawable (a Pixmap with depth 1)
- * @width: the current width of @drawable
- * @height: the current height of @drawable
+ * @width: the current width of @bitmap
+ * @height: the current height of @bitmap
  *
  * Creates an XCB surface that draws to the given bitmap.
  * This will be drawn to as a %CAIRO_FORMAT_A1 object.
@@ -1256,17 +1286,19 @@ slim_hidden_def (cairo_xcb_surface_create);
  * This function always returns a valid pointer, but it will return a
  * pointer to a "nil" surface if an error such as out of memory
  * occurs. You can use cairo_surface_status() to check for this.
+ *
+ * Since: 1.12
  **/
 cairo_surface_t *
-cairo_xcb_surface_create_for_bitmap (xcb_connection_t	*xcb_connection,
-				     xcb_screen_t	*xcb_screen,
+cairo_xcb_surface_create_for_bitmap (xcb_connection_t	*connection,
+				     xcb_screen_t	*screen,
 				     xcb_pixmap_t	 bitmap,
 				     int		 width,
 				     int		 height)
 {
-    cairo_xcb_screen_t *screen;
+    cairo_xcb_screen_t *cairo_xcb_screen;
 
-    if (xcb_connection_has_error (xcb_connection))
+    if (xcb_connection_has_error (connection))
 	return _cairo_surface_create_in_error (_cairo_error (CAIRO_STATUS_WRITE_ERROR));
 
     if (width > XLIB_COORD_MAX || height > XLIB_COORD_MAX)
@@ -1274,13 +1306,13 @@ cairo_xcb_surface_create_for_bitmap (xcb_connection_t	*xcb_connection,
     if (unlikely (width <= 0 || height <= 0))
 	return _cairo_surface_create_in_error (_cairo_error (CAIRO_STATUS_INVALID_SIZE));
 
-    screen = _cairo_xcb_screen_get (xcb_connection, xcb_screen);
-    if (unlikely (screen == NULL))
+    cairo_xcb_screen = _cairo_xcb_screen_get (connection, screen);
+    if (unlikely (cairo_xcb_screen == NULL))
 	return _cairo_surface_create_in_error (_cairo_error (CAIRO_STATUS_NO_MEMORY));
 
-    return _cairo_xcb_surface_create_internal (screen, bitmap, FALSE,
+    return _cairo_xcb_surface_create_internal (cairo_xcb_screen, bitmap, FALSE,
 					       PIXMAN_a1,
-					       screen->connection->standard_formats[CAIRO_FORMAT_A1],
+					       cairo_xcb_screen->connection->standard_formats[CAIRO_FORMAT_A1],
 					       width, height);
 }
 #if CAIRO_HAS_XLIB_XCB_FUNCTIONS
@@ -1317,20 +1349,22 @@ slim_hidden_def (cairo_xcb_surface_create_for_bitmap);
  * This function always returns a valid pointer, but it will return a
  * pointer to a "nil" surface if an error such as out of memory
  * occurs. You can use cairo_surface_status() to check for this.
+ *
+ * Since: 1.12
  **/
 cairo_surface_t *
-cairo_xcb_surface_create_with_xrender_format (xcb_connection_t	    *xcb_connection,
-					      xcb_screen_t	    *xcb_screen,
+cairo_xcb_surface_create_with_xrender_format (xcb_connection_t	    *connection,
+					      xcb_screen_t	    *screen,
 					      xcb_drawable_t	     drawable,
 					      xcb_render_pictforminfo_t *format,
 					      int		     width,
 					      int		     height)
 {
-    cairo_xcb_screen_t *screen;
+    cairo_xcb_screen_t *cairo_xcb_screen;
     cairo_format_masks_t image_masks;
     pixman_format_code_t pixman_format;
 
-    if (xcb_connection_has_error (xcb_connection))
+    if (xcb_connection_has_error (connection))
 	return _cairo_surface_create_in_error (_cairo_error (CAIRO_STATUS_WRITE_ERROR));
 
     if (width > XLIB_COORD_MAX || height > XLIB_COORD_MAX)
@@ -1362,11 +1396,11 @@ cairo_xcb_surface_create_with_xrender_format (xcb_connection_t	    *xcb_connecti
     if (! _pixman_format_from_masks (&image_masks, &pixman_format))
 	return _cairo_surface_create_in_error (_cairo_error (CAIRO_STATUS_INVALID_FORMAT));
 
-    screen = _cairo_xcb_screen_get (xcb_connection, xcb_screen);
-    if (unlikely (screen == NULL))
+    cairo_xcb_screen = _cairo_xcb_screen_get (connection, screen);
+    if (unlikely (cairo_xcb_screen == NULL))
 	return _cairo_surface_create_in_error (_cairo_error (CAIRO_STATUS_NO_MEMORY));
 
-    return _cairo_xcb_surface_create_internal (screen,
+    return _cairo_xcb_surface_create_internal (cairo_xcb_screen,
 					       drawable,
 					       FALSE,
 					       pixman_format,
@@ -1376,6 +1410,18 @@ cairo_xcb_surface_create_with_xrender_format (xcb_connection_t	    *xcb_connecti
 #if CAIRO_HAS_XLIB_XCB_FUNCTIONS
 slim_hidden_def (cairo_xcb_surface_create_with_xrender_format);
 #endif
+
+/* This does the necessary fixup when a surface's drawable or size changed. */
+static void
+_drawable_changed (cairo_xcb_surface_t *surface)
+{
+    _cairo_surface_begin_modification (&surface->base);
+    _cairo_boxes_clear (&surface->fallback_damage);
+    cairo_surface_destroy (&surface->fallback->base);
+
+    surface->deferred_clear = FALSE;
+    surface->fallback = NULL;
+}
 
 /**
  * cairo_xcb_surface_set_size:
@@ -1392,6 +1438,11 @@ slim_hidden_def (cairo_xcb_surface_create_with_xrender_format);
  *
  * A pixmap can never change size, so it is never necessary to call
  * this function on a surface created for a pixmap.
+ *
+ * If cairo_surface_flush() wasn't called, some pending operations
+ * might be discarded.
+ *
+ * Since: 1.12
  **/
 void
 cairo_xcb_surface_set_size (cairo_surface_t *abstract_surface,
@@ -1422,9 +1473,86 @@ cairo_xcb_surface_set_size (cairo_surface_t *abstract_surface,
     }
 
     surface = (cairo_xcb_surface_t *) abstract_surface;
+
+    _drawable_changed(surface);
     surface->width  = width;
     surface->height = height;
 }
 #if CAIRO_HAS_XLIB_XCB_FUNCTIONS
 slim_hidden_def (cairo_xcb_surface_set_size);
+#endif
+
+/**
+ * cairo_xcb_surface_set_drawable:
+ * @surface: a #cairo_surface_t for the XCB backend
+ * @drawable: the new drawable of the surface
+ * @width: the new width of the surface
+ * @height: the new height of the surface
+ *
+ * Informs cairo of the new drawable and size of the XCB drawable underlying the
+ * surface.
+ *
+ * If cairo_surface_flush() wasn't called, some pending operations
+ * might be discarded.
+ *
+ * Since: 1.12
+ **/
+void
+cairo_xcb_surface_set_drawable (cairo_surface_t *abstract_surface,
+				xcb_drawable_t  drawable,
+				int             width,
+				int             height)
+{
+    cairo_xcb_surface_t *surface;
+
+    if (unlikely (abstract_surface->status))
+	return;
+    if (unlikely (abstract_surface->finished)) {
+	_cairo_surface_set_error (abstract_surface,
+				  _cairo_error (CAIRO_STATUS_SURFACE_FINISHED));
+	return;
+    }
+
+
+    if (abstract_surface->type != CAIRO_SURFACE_TYPE_XCB) {
+	_cairo_surface_set_error (abstract_surface,
+				  _cairo_error (CAIRO_STATUS_SURFACE_TYPE_MISMATCH));
+	return;
+    }
+
+    if (width > XLIB_COORD_MAX || height > XLIB_COORD_MAX || width <= 0 || height <= 0) {
+	_cairo_surface_set_error (abstract_surface,
+				  _cairo_error (CAIRO_STATUS_INVALID_SIZE));
+	return;
+    }
+
+    surface = (cairo_xcb_surface_t *) abstract_surface;
+
+    /* XXX: and what about this case? */
+    if (surface->owns_pixmap)
+	    return;
+
+    _drawable_changed (surface);
+
+    if (surface->drawable != drawable) {
+	    cairo_status_t status;
+	    status = _cairo_xcb_connection_acquire (surface->connection);
+	    if (unlikely (status))
+		    return;
+
+	    if (surface->picture != XCB_NONE) {
+		    _cairo_xcb_connection_render_free_picture (surface->connection,
+							       surface->picture);
+		    surface->picture = XCB_NONE;
+	    }
+
+	    _cairo_xcb_connection_release (surface->connection);
+
+	    surface->drawable = drawable;
+    }
+    surface->width  = width;
+    surface->height = height;
+}
+#if CAIRO_HAS_XLIB_XCB_FUNCTIONS
+slim_hidden_def (cairo_xcb_surface_set_drawable);
 #endif

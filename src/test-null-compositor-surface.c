@@ -198,6 +198,7 @@ static const cairo_surface_backend_t test_compositor_surface_backend = {
     _cairo_image_surface_map_to_image,
     _cairo_image_surface_unmap_image,
 
+    _cairo_image_surface_source,
     _cairo_image_surface_acquire_source_image,
     _cairo_image_surface_release_source_image,
     NULL, /* snapshot */
@@ -372,7 +373,8 @@ finish_spans (void *abstract_renderer)
 static cairo_int_status_t
 span_renderer_init (cairo_abstract_span_renderer_t	*_r,
 		    const cairo_composite_rectangles_t *composite,
-		    cairo_bool_t			 needs_clip)
+		    cairo_antialias_t			antialias,
+		    cairo_bool_t			needs_clip)
 {
     cairo_span_renderer_t *r = (cairo_span_renderer_t *)_r;
     r->render_rows = spans;
@@ -392,6 +394,12 @@ no_fallback_compositor_get (void)
     return &__cairo_no_compositor;
 }
 
+static cairo_int_status_t
+check_composite (const cairo_composite_rectangles_t *extents)
+{
+    return CAIRO_STATUS_SUCCESS;
+}
+
 static const cairo_compositor_t *
 no_traps_compositor_get (void)
 {
@@ -408,7 +416,7 @@ no_traps_compositor_get (void)
 	compositor.draw_image_boxes = draw_image_boxes;
 	//compositor.copy_boxes = copy_boxes;
 	compositor.fill_boxes = fill_boxes;
-	//compositor.check_composite = check_composite;
+	compositor.check_composite = check_composite;
 	compositor.composite = composite;
 	compositor.lerp = lerp;
 	//compositor.check_composite_boxes = check_composite_boxes;

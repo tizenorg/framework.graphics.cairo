@@ -44,6 +44,7 @@
 #include "cairo-list-private.h"
 #include "cairo-reference-count-private.h"
 #include "cairo-clip-private.h"
+#include "cairo-surface-backend-private.h"
 
 typedef void (*cairo_surface_func_t) (cairo_surface_t *);
 
@@ -62,7 +63,9 @@ struct _cairo_surface {
     cairo_status_t status;
     unsigned int unique_id;
     unsigned int serial;
+    cairo_damage_t *damage;
 
+    unsigned _finishing : 1;
     unsigned finished : 1;
     unsigned is_clear : 1;
     unsigned has_font_options : 1;
@@ -104,5 +107,9 @@ struct _cairo_surface {
 
 cairo_private cairo_surface_t *
 _cairo_int_surface_create_in_error (cairo_int_status_t status);
+
+cairo_private cairo_surface_t *
+_cairo_surface_get_source (cairo_surface_t *surface,
+			   cairo_rectangle_int_t *extents);
 
 #endif /* CAIRO_SURFACE_PRIVATE_H */

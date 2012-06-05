@@ -47,6 +47,7 @@
 #include "cairo-xlib-xrender-private.h"
 
 #include "cairo-default-context-private.h"
+#include "cairo-list-inline.h"
 #include "cairo-image-surface-private.h"
 #include "cairo-surface-backend-private.h"
 
@@ -135,6 +136,14 @@ _cairo_xlib_xcb_surface_unmap (void *abstract_surface,
     cairo_surface_reference (&image->base);
     cairo_surface_unmap_image (&surface->xcb->base, &image->base);
     return cairo_surface_status (&surface->xcb->base);
+}
+
+static cairo_surface_t *
+_cairo_xlib_xcb_surface_source (void *abstract_surface,
+				cairo_rectangle_int_t *extents)
+{
+    cairo_xlib_xcb_surface_t *surface = abstract_surface;
+    return _cairo_surface_get_source (&surface->xcb->base, extents);
 }
 
 static cairo_status_t
@@ -275,6 +284,7 @@ static const cairo_surface_backend_t _cairo_xlib_xcb_surface_backend = {
     _cairo_xlib_xcb_surface_map_to_image,
     _cairo_xlib_xcb_surface_unmap,
 
+    _cairo_xlib_xcb_surface_source,
     _cairo_xlib_xcb_surface_acquire_source_image,
     _cairo_xlib_xcb_surface_release_source_image,
     NULL, /* snapshot */
@@ -647,7 +657,11 @@ cairo_xlib_surface_set_drawable (cairo_surface_t   *abstract_surface,
 	return;
     }
 
-    ASSERT_NOT_REACHED;
+    cairo_xcb_surface_set_drawable (&surface->xcb->base, drawable, width, height);
+    if (unlikely (surface->xcb->base.status)) {
+	status = _cairo_surface_set_error (abstract_surface,
+		                           _cairo_error (surface->xcb->base.status));
+    }
 }
 
 Display *
@@ -779,6 +793,22 @@ cairo_xlib_surface_get_height (cairo_surface_t *abstract_surface)
     }
 
     return surface->xcb->height;
+}
+
+void
+cairo_xlib_device_debug_cap_xrender_version (cairo_device_t *device,
+					     int major, int minor)
+{
+    cairo_xlib_xcb_display_t *display = (cairo_xlib_xcb_display_t *) device;
+
+    if (device == NULL || device->status)
+	return;
+
+    if (device->backend->type != CAIRO_DEVICE_TYPE_XLIB)
+	return;
+
+    cairo_xcb_device_debug_cap_xrender_version (display->xcb_device,
+						major, minor);
 }
 
 void

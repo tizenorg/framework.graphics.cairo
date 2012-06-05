@@ -40,7 +40,7 @@
 
 #include "cairo-error-private.h"
 #include "cairo-freelist-private.h"
-#include "cairo-combsort-private.h"
+#include "cairo-combsort-inline.h"
 
 typedef cairo_point_t cairo_bo_point32_t;
 
@@ -1172,13 +1172,23 @@ edges_start_or_continue (cairo_bo_edge_t	*left,
 			 int			 top,
 			 cairo_polygon_t	*polygon)
 {
+    assert (right->deferred.other == NULL);
+
     if (left->deferred.other == right)
 	return;
 
     if (left->deferred.other != NULL) {
 	if (right != NULL && edges_colinear (left->deferred.other, right)) {
-	    /* continuation on right, so just swap edges */
-	    assert (left->deferred.other->deferred.other == NULL);
+	    cairo_bo_edge_t *old = left->deferred.other;
+
+	    /* continuation on right, extend right to cover both */
+	    assert (old->deferred.other == NULL);
+	    assert (old->edge.line.p2.y > old->edge.line.p1.y);
+
+	    if (old->edge.line.p1.y < right->edge.line.p1.y)
+		right->edge.line.p1 = old->edge.line.p1;
+	    if (old->edge.line.p2.y > right->edge.line.p2.y)
+		right->edge.line.p2 = old->edge.line.p2;
 	    left->deferred.other = right;
 	    return;
 	}
@@ -1233,13 +1243,11 @@ active_edges (cairo_bo_edge_t		*left,
 		}
 
 		right = right->next;
-	    } while (right);
+	    } while (1);
 
 	    edges_start_or_continue (left, right, top, polygon);
 
-	    left = right;
-	    if (left != NULL)
-		left = left->next;
+	    left = right->next;
 	}
 }
 
@@ -1323,6 +1331,11 @@ intersection_sweep (cairo_bo_event_t   **start_events,
 	    /* skip this intersection if its edges are not adjacent */
 	    if (e2 != e1->next)
 		break;
+
+	    if (e1->deferred.other)
+		edges_end (e1, sweep_line.current_y, polygon);
+	    if (e2->deferred.other)
+		edges_end (e2, sweep_line.current_y, polygon);
 
 	    left = e1->prev;
 	    right = e2->next;

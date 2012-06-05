@@ -50,7 +50,7 @@
 #include "cairo-analysis-surface-private.h"
 #include "cairo-error-private.h"
 #include "cairo-image-surface-private.h"
-#include "cairo-surface-subsurface-private.h"
+#include "cairo-surface-subsurface-inline.h"
 
 static const cairo_surface_backend_t cairo_paginated_surface_backend;
 
@@ -240,6 +240,14 @@ _cairo_paginated_surface_create_image_surface (void	       *abstract_surface,
     _cairo_surface_set_font_options (image, &options);
 
     return image;
+}
+
+static cairo_surface_t *
+_cairo_paginated_surface_source (void	       *abstract_surface,
+				 cairo_rectangle_int_t *extents)
+{
+    cairo_paginated_surface_t *surface = abstract_surface;
+    return _cairo_surface_get_source (surface->target, extents);
 }
 
 static cairo_status_t
@@ -640,6 +648,17 @@ _cairo_paginated_surface_show_text_glyphs (void			      *abstract_surface,
 					    clip);
 }
 
+static const char **
+_cairo_paginated_surface_get_supported_mime_types (void *abstract_surface)
+{
+    cairo_paginated_surface_t *surface = abstract_surface;
+
+    if (surface->target->backend->get_supported_mime_types)
+	return surface->target->backend->get_supported_mime_types (surface->target);
+
+    return NULL;
+}
+
 static cairo_surface_t *
 _cairo_paginated_surface_snapshot (void *abstract_other)
 {
@@ -671,6 +690,7 @@ static const cairo_surface_backend_t cairo_paginated_surface_backend = {
     NULL, /* map to image */
     NULL, /* unmap image */
 
+    _cairo_paginated_surface_source,
     _cairo_paginated_surface_acquire_source_image,
     _cairo_paginated_surface_release_source_image,
     _cairo_paginated_surface_snapshot,
@@ -691,5 +711,6 @@ static const cairo_surface_backend_t cairo_paginated_surface_backend = {
     NULL, /* fill_stroke */
     NULL, /* show_glyphs */
     _cairo_paginated_surface_has_show_text_glyphs,
-    _cairo_paginated_surface_show_text_glyphs
+    _cairo_paginated_surface_show_text_glyphs,
+    _cairo_paginated_surface_get_supported_mime_types,
 };

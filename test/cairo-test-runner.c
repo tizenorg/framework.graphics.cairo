@@ -35,10 +35,7 @@
 
 #include <pixman.h> /* for version information */
 
-/* Coregraphics doesn't seem to like being forked and reports:
- * "The process has forked and you cannot use this CoreFoundation functionality safely. You MUST exec()."
- * so we don't for on OS X */
-#define SHOULD_FORK HAVE_FORK && HAVE_WAITPID && !__APPLE__
+#define SHOULD_FORK HAVE_FORK && HAVE_WAITPID
 #if SHOULD_FORK
 #if HAVE_UNISTD_H
 #include <unistd.h>
@@ -107,7 +104,7 @@ typedef enum {
     GT
 } cairo_test_compare_op_t;
 
-static cairo_test_t *tests;
+static cairo_test_list_t *tests;
 
 static void CAIRO_BOILERPLATE_PRINTF_FORMAT(2,3)
 _log (cairo_test_context_t *ctx,
@@ -123,18 +120,6 @@ _log (cairo_test_context_t *ctx,
     va_start (ap, fmt);
     cairo_test_logv (ctx, fmt, ap);
     va_end (ap);
-}
-
-static void
-_tests_reverse (void)
-{
-    cairo_test_t *list, *next;
-
-    for (list = tests, tests = NULL; list != NULL; list = next) {
-	next = list->next;
-	list->next = tests;
-	tests = list;
-    }
 }
 
 static cairo_test_list_t *
@@ -341,7 +326,6 @@ usage (const char *argv0)
 {
     fprintf (stderr,
 	     "Usage: %s [-afkxsl] [test-names|keywords ...]\n"
-	     "       %s -l\n"
 	     "\n"
 	     "Run the cairo conformance test suite over the given tests (all by default)\n"
 	     "The command-line arguments are interpreted as follows:\n"
@@ -350,15 +334,15 @@ usage (const char *argv0)
 	     "          skips similar surface and device offset testing.\n"
 	     "  -f	foreground; do not fork\n"
 	     "  -k	match tests by keyword\n"
+	     "  -l	list only; just list selected test case names without executing\n"
 	     "  -s	include slow, long running tests\n"
 	     "  -x	exit on first failure\n"
-	     "  -l	list only; just list selected test case names without executing\n"
 	     "\n"
 	     "If test names are given they are used as matches either to a specific\n"
 	     "test case or to a keyword, so a command such as\n"
-	     "\"cairo-test-suite -k text\" can be used to run all text test cases, and\n"
-	     "\"cairo-test-suite text-transform\" to run the individual case.\n",
-	     argv0, argv0);
+	     "\"%s -k text\" can be used to run all text test cases, and\n"
+	     "\"%s text-transform\" to run the individual case.\n",
+	     argv0, argv0, argv0);
 }
 
 static void
@@ -367,7 +351,7 @@ _parse_cmdline (cairo_test_runner_t *runner, int *argc, char **argv[])
     int c;
 
     while (1) {
-	c = _cairo_getopt (*argc, *argv, ":afkxsl");
+	c = _cairo_getopt (*argc, *argv, ":afklsx");
 	if (c == -1)
 	    break;
 
@@ -375,20 +359,20 @@ _parse_cmdline (cairo_test_runner_t *runner, int *argc, char **argv[])
 	case 'a':
 	    runner->full_test = TRUE;
 	    break;
-	case 's':
-	    runner->slow = TRUE;
+	case 'f':
+	    runner->foreground = TRUE;
+	    break;
+	case 'k':
+	    runner->keyword_match = TRUE;
 	    break;
 	case 'l':
 	    runner->list_only = TRUE;
 	    break;
-	case 'f':
-	    runner->foreground = TRUE;
+	case 's':
+	    runner->slow = TRUE;
 	    break;
 	case 'x':
 	    runner->exit_on_failure = TRUE;
-	    break;
-	case 'k':
-	    runner->keyword_match = TRUE;
 	    break;
 	default:
 	    fprintf (stderr, "Internal error: unhandled option: %c\n", c);
@@ -710,7 +694,7 @@ int
 main (int argc, char **argv)
 {
     cairo_test_runner_t runner;
-    cairo_test_t *test;
+    cairo_test_list_t *test_list;
     cairo_test_status_t *target_status;
     unsigned int n, m;
     char targets[4096];
@@ -724,7 +708,7 @@ main (int argc, char **argv)
 #endif
 
     _cairo_test_runner_register_tests ();
-    _tests_reverse ();
+    tests = _list_reverse (tests);
 
     memset (&runner, 0, sizeof (runner));
     runner.num_device_offsets = 1;
@@ -769,7 +753,8 @@ main (int argc, char **argv)
 				 runner.base.num_targets);
     }
 
-    for (test = tests; test != NULL; test = test->next) {
+    for (test_list = tests; test_list != NULL; test_list = test_list->next) {
+	const cairo_test_t *test = test_list->test;
 	cairo_test_context_t ctx;
 	cairo_test_status_t status;
 	cairo_bool_t failed = FALSE, xfailed = FALSE, error = FALSE, crashed = FALSE, skipped = TRUE;
@@ -1098,6 +1083,5 @@ main (int argc, char **argv)
 void
 cairo_test_register (cairo_test_t *test)
 {
-    test->next = tests;
-    tests = test;
+    tests = _list_prepend (tests, test);
 }

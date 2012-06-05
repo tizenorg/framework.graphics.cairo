@@ -35,7 +35,7 @@
 #include "cairo-xcb-private.h"
 #include "cairo-hash-private.h"
 #include "cairo-freelist-private.h"
-#include "cairo-list-private.h"
+#include "cairo-list-inline.h"
 
 #include <xcb/xcbext.h>
 #include <xcb/bigreq.h>
@@ -776,6 +776,16 @@ _cairo_xcb_connection_get_xid (cairo_xcb_connection_t *connection)
     return xid;
 }
 
+/**
+ * cairo_xcb_device_get_connection:
+ * @device: a #cairo_device_t for the XCB backend
+ *
+ * Get the connection for the XCB device.
+ *
+ * Returns: the #xcb_connection_t for the connection
+ *
+ * Since: 1.12
+ **/
 xcb_connection_t *
 cairo_xcb_device_get_connection (cairo_device_t *device)
 {
@@ -799,6 +809,8 @@ cairo_xcb_device_get_connection (cairo_device_t *device)
  * the SHM extension.
  *
  * Use the special values -1 and -1 for disabling the SHM extension.
+ *
+ * Since: 1.12
  **/
 void
 cairo_xcb_device_debug_cap_xshm_version (cairo_device_t *device,
@@ -808,7 +820,10 @@ cairo_xcb_device_debug_cap_xshm_version (cairo_device_t *device,
     cairo_xcb_connection_t *connection = (cairo_xcb_connection_t *) device;
 
     if (device->backend->type != CAIRO_DEVICE_TYPE_XCB) {
-	_cairo_device_set_error (device, CAIRO_STATUS_DEVICE_TYPE_MISMATCH);
+	cairo_status_t status;
+
+	status = _cairo_device_set_error (device, CAIRO_STATUS_DEVICE_TYPE_MISMATCH);
+	(void) status;
 	return;
     }
 
@@ -835,6 +850,8 @@ cairo_xcb_device_debug_cap_xshm_version (cairo_device_t *device,
  * the RENDER extension.
  *
  * Use the special values -1 and -1 for disabling the RENDER extension.
+ *
+ * Since: 1.12
  **/
 void
 cairo_xcb_device_debug_cap_xrender_version (cairo_device_t *device,
@@ -844,7 +861,10 @@ cairo_xcb_device_debug_cap_xrender_version (cairo_device_t *device,
     cairo_xcb_connection_t *connection = (cairo_xcb_connection_t *) device;
 
     if (device->backend->type != CAIRO_DEVICE_TYPE_XCB) {
-	_cairo_device_set_error (device, CAIRO_STATUS_DEVICE_TYPE_MISMATCH);
+	cairo_status_t status;
+
+	status = _cairo_device_set_error (device, CAIRO_STATUS_DEVICE_TYPE_MISMATCH);
+	(void) status;
 	return;
     }
 
@@ -893,8 +913,20 @@ cairo_xcb_device_debug_cap_xrender_version (cairo_device_t *device,
 	    connection->flags &= ~CAIRO_XCB_RENDER_HAS_GRADIENTS;
     }
 }
+#if CAIRO_HAS_XLIB_XCB_FUNCTIONS
+slim_hidden_def (cairo_xcb_device_debug_cap_xrender_version);
+#endif
 
-
+/**
+ * cairo_xcb_device_debug_set_precision:
+ * @device: a #cairo_device_t for the XCB backend
+ * @precision: the precision to use
+ *
+ * Render supports two modes of precision when rendering trapezoids. Set
+ * the precision to the desired mode.
+ *
+ * Since: 1.12
+ **/
 void
 cairo_xcb_device_debug_set_precision (cairo_device_t *device,
 				      int precision)
@@ -915,6 +947,16 @@ cairo_xcb_device_debug_set_precision (cairo_device_t *device,
 slim_hidden_def (cairo_xcb_device_debug_set_precision);
 #endif
 
+/**
+ * cairo_xcb_device_debug_get_precision:
+ * @device: a #cairo_device_t for the XCB backend
+ *
+ * Get the Xrender precision mode.
+ *
+ * Returns: the render precision mode
+ *
+ * Since: 1.12
+ **/
 int
 cairo_xcb_device_debug_get_precision (cairo_device_t *device)
 {
