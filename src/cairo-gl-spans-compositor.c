@@ -415,6 +415,13 @@ _cairo_gl_span_renderer_init (cairo_abstract_span_renderer_t	*_r,
     cairo_operator_t op = composite->op;
     cairo_int_status_t status;
 
+    if (op == CAIRO_OPERATOR_SOURCE) {
+	if (! _cairo_pattern_is_opaque (&composite->source_pattern.base,
+					&composite->source_sample_area))
+	    return CAIRO_INT_STATUS_UNSUPPORTED;
+	op = CAIRO_OPERATOR_OVER;
+    }
+
     /* XXX earlier! */
     if (op == CAIRO_OPERATOR_CLEAR) {
 	source = &_cairo_pattern_white.base;
@@ -438,7 +445,8 @@ _cairo_gl_span_renderer_init (cairo_abstract_span_renderer_t	*_r,
 
     status = _cairo_gl_composite_set_source (&r->setup, source,
 					     &composite->source_sample_area,
-					     &composite->unbounded);
+					     &composite->unbounded,
+					     FALSE);
     if (unlikely (status))
         goto FAIL;
 

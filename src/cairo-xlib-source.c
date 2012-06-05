@@ -259,9 +259,8 @@ render_pattern (cairo_xlib_surface_t *dst,
 {
     Display *dpy = dst->display->display;
     cairo_xlib_surface_t *src;
-    cairo_image_surface_t *image;
+    cairo_surface_t *image;
     cairo_status_t status;
-    cairo_rectangle_int_t map_extents;
 
     src = (cairo_xlib_surface_t *)
 	_cairo_surface_create_similar_scratch (&dst->base,
@@ -273,14 +272,11 @@ render_pattern (cairo_xlib_surface_t *dst,
 	return None;
     }
 
-    map_extents = *extents;
-    map_extents.x = map_extents.y = 0;
-
-    image = _cairo_surface_map_to_image (&src->base, &map_extents);
-    status = _cairo_surface_offset_paint (&image->base, extents->x, extents->y,
+    image = cairo_surface_map_to_image (&src->base, NULL);
+    status = _cairo_surface_offset_paint (image, extents->x, extents->y,
 					  CAIRO_OPERATOR_SOURCE, pattern,
 					  NULL);
-    status = _cairo_surface_unmap_image (&src->base, image);
+    cairo_surface_unmap_image (&src->base, image);
     if (unlikely (status)) {
 	cairo_surface_destroy (&src->base);
 	return _cairo_surface_create_in_error (status);
@@ -913,10 +909,10 @@ surface_source (cairo_xlib_surface_t *dst,
 		int *src_x, int *src_y)
 {
     cairo_xlib_surface_t *src;
-    cairo_image_surface_t *image;
+    cairo_surface_t *image;
     cairo_surface_pattern_t local_pattern;
     cairo_status_t status;
-    cairo_rectangle_int_t upload, limit, map_extents;
+    cairo_rectangle_int_t upload, limit;
     cairo_matrix_t m;
 
     upload = *sample;
@@ -943,15 +939,12 @@ surface_source (cairo_xlib_surface_t *dst,
     cairo_matrix_init_translate (&local_pattern.base.matrix,
 				 upload.x, upload.y);
 
-    map_extents = upload;
-    map_extents.x = map_extents.y = 0;
-
-    image = _cairo_surface_map_to_image (&src->base, &map_extents);
-    status = _cairo_surface_paint (&image->base,
+    image = cairo_surface_map_to_image (&src->base, NULL);
+    status = _cairo_surface_paint (image,
 				   CAIRO_OPERATOR_SOURCE,
 				   &local_pattern.base,
 				   NULL);
-    status = _cairo_surface_unmap_image (&src->base, image);
+    cairo_surface_unmap_image (&src->base, image);
     _cairo_pattern_fini (&local_pattern.base);
 
     if (unlikely (status)) {

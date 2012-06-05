@@ -107,12 +107,13 @@ _cairo_quartz_image_surface_acquire_source_image (void *asurface,
     return CAIRO_STATUS_SUCCESS;
 }
 
-static cairo_image_surface_t *
+static cairo_surface_t *
 _cairo_quartz_image_surface_map_to_image (void *asurface,
 					  const cairo_rectangle_int_t *extents)
 {
     cairo_quartz_image_surface_t *surface = (cairo_quartz_image_surface_t *) asurface;
-    return _cairo_surface_map_to_image (&surface->imageSurface->base, extents);
+
+    return cairo_surface_map_to_image (&surface->imageSurface->base, extents);
 }
 
 static cairo_int_status_t
@@ -120,7 +121,9 @@ _cairo_quartz_image_surface_unmap_image (void *asurface,
 					 cairo_image_surface_t *image)
 {
     cairo_quartz_image_surface_t *surface = (cairo_quartz_image_surface_t *) asurface;
-    return _cairo_surface_unmap_image (&surface->imageSurface->base, image);
+
+    cairo_surface_unmap_image (&surface->imageSurface->base, &image->base);
+    return cairo_surface_status (&surface->imageSurface->base);
 }
 
 static cairo_bool_t
@@ -309,7 +312,7 @@ cairo_quartz_image_surface_create (cairo_surface_t *surface)
     if (surface->status)
 	return surface;
 
-    if (! _cairo_surface_is_image (surface))
+    if (cairo_surface_get_type(surface) != CAIRO_SURFACE_TYPE_IMAGE)
 	return SURFACE_ERROR_TYPE_MISMATCH;
 
     image_surface = (cairo_image_surface_t*) surface;
@@ -374,7 +377,7 @@ cairo_quartz_image_surface_get_image (cairo_surface_t *asurface)
 {
     cairo_quartz_image_surface_t *surface = (cairo_quartz_image_surface_t*) asurface;
 
-    if (asurface->type != CAIRO_SURFACE_TYPE_QUARTZ_IMAGE)
+    if (cairo_surface_get_type(asurface) != CAIRO_SURFACE_TYPE_QUARTZ_IMAGE)
 	return NULL;
 
     return (cairo_surface_t*) surface->imageSurface;

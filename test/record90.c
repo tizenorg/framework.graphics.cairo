@@ -485,7 +485,7 @@ CAIRO_TEST (record90_self_intersecting,
 	    "Test strokes of self-intersecting paths",
 	    "record, stroke, trap", /* keywords */
 	    NULL, /* requirements */
-	    20, 10,
+	    10, 20,
 	    NULL, record_self_intersecting)
 CAIRO_TEST (record90_text_transform,
 	    "Test various applications of the font matrix",

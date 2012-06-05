@@ -46,6 +46,8 @@
 #include "cairo-scaled-font-private.h"
 #include "cairo-surface-backend-private.h"
 
+#define TOLERANCE 0.00001
+
 #if _XOPEN_SOURCE >= 600 || defined (_ISOC99_SOURCE)
 #define ISFINITE(x) isfinite (x)
 #else
@@ -2108,6 +2110,29 @@ cairo_scaled_font_text_to_glyphs (cairo_scaled_font_t   *scaled_font,
 }
 slim_hidden_def (cairo_scaled_font_text_to_glyphs);
 
+/* XXX: Shoot me - cairo has two basic ways of rendring text in API.
+ * The first way is cairo_show_text() and the second way is
+ * cairo_show_glyphs().
+ *
+ * For the first method, each glyph location is advanced by x_advance
+ * and y_advance computed from glyph metrics.  For the second method,
+ * app is responsible for supplying the glyph location.  This gives us
+ * opportunity to check whether the computed x_advance and _y_advance
+ * is equala/larger than supplied glyphs difference for each adjacent
+ * glyphs.  The rational is that if the spacing between glyphs is at
+ * least larger than computed x_advance/y_advance, there should be no
+ * overlapping in text portion of the text images.
+ */
+static inline cairo_bool_t
+_glyph_is_next_to_glyph (cairo_glyph_t *prev,
+			 cairo_glyph_t *current,
+			 double x_advance,
+			 double y_advance)
+{
+    return current->x - prev->x >= x_advance - TOLERANCE &&
+	    current->y - prev->y >= y_advance - TOLERANCE;
+}
+
 static inline cairo_bool_t
 _range_contains_glyph (const cairo_box_t *extents,
 		       cairo_fixed_t left,
@@ -2175,8 +2200,10 @@ _cairo_scaled_font_glyph_device_extents (cairo_scaled_font_t	 *scaled_font,
     cairo_box_t box = { { INT_MAX, INT_MAX }, { INT_MIN, INT_MIN }};
     cairo_scaled_glyph_t *glyph_cache[64];
     cairo_bool_t overlap = overlap_out ? FALSE : TRUE;
+    cairo_scaled_glyph_t *prev_scaled_glyph = NULL;
     cairo_round_glyph_positions_t round_glyph_positions = _cairo_font_options_get_round_glyph_positions (&scaled_font->options);
     int i;
+    cairo_bool_t is_next = FALSE;
 
     if (unlikely (scaled_font->status))
 	return scaled_font->status;
@@ -2226,13 +2253,22 @@ _cairo_scaled_font_glyph_device_extents (cairo_scaled_font_t	 *scaled_font,
 	y1 = y + scaled_glyph->bbox.p1.y;
 	y2 = y + scaled_glyph->bbox.p2.y;
 
-	if (overlap == FALSE)
-	    overlap = _range_contains_glyph (&box, x1, y1, x2, y2);
+	if (prev_scaled_glyph != NULL && overlap == FALSE) {
+	    is_next = _glyph_is_next_to_glyph ((cairo_glyph_t *)&glyphs[i-1],
+					       (cairo_glyph_t *)&glyphs[i],
+					       prev_scaled_glyph->metrics.x_advance,
+					       prev_scaled_glyph->metrics.y_advance);
+
+	    if (is_next == FALSE)
+		overlap = _range_contains_glyph (&box, x1, y1, x2, y2);
+	}
 
 	if (x1 < box.p1.x) box.p1.x = x1;
 	if (x2 > box.p2.x) box.p2.x = x2;
 	if (y1 < box.p1.y) box.p1.y = y1;
 	if (y2 > box.p2.y) box.p2.y = y2;
+
+	prev_scaled_glyph = scaled_glyph;
     }
 
     _cairo_scaled_font_thaw_cache (scaled_font);
@@ -2252,7 +2288,7 @@ _cairo_scaled_font_glyph_device_extents (cairo_scaled_font_t	 *scaled_font,
     return CAIRO_STATUS_SUCCESS;
 }
 
-cairo_bool_t
+void
 _cairo_scaled_font_glyph_approximate_extents (cairo_scaled_font_t	 *scaled_font,
 					      const cairo_glyph_t	 *glyphs,
 					      int                      num_glyphs,
@@ -2260,14 +2296,6 @@ _cairo_scaled_font_glyph_approximate_extents (cairo_scaled_font_t	 *scaled_font,
 {
     double x0, x1, y0, y1, pad;
     int i;
-
-    /* If any of the factors are suspect (i.e. the font is broken), bail */
-    if (scaled_font->fs_extents.max_x_advance == 0 ||
-	scaled_font->fs_extents.height == 0 ||
-	scaled_font->max_scale == 0)
-    {
-	return FALSE;
-    }
 
     assert (num_glyphs);
 
@@ -2293,7 +2321,6 @@ _cairo_scaled_font_glyph_approximate_extents (cairo_scaled_font_t	 *scaled_font,
     extents->width = ceil (x1 + pad) - extents->x;
     extents->y = floor (y0 - pad);
     extents->height = ceil (y1 + pad) - extents->y;
-    return TRUE;
 }
 
 #if 0

@@ -1,3 +1,11 @@
+cairo (1.12.3-slp2+slp2+2) unstable; urgency=low
+
+  * Update cairo gl/msaa compositor to latest
+  * Git: unmodified/cairo.git
+  * Tag: cairo_1.12.3-slp2+2
+
+ -- Dongyeon Kim <dy5.kim@samsung.com>  Tue, 05 Jun 2012 14:19:17 +0900
+
 cairo (1.12.3-slp2+1) unstable; urgency=low
 
   * Update to working version of 1.12.3

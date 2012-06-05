@@ -174,11 +174,9 @@ composite_boxes (void			*_dst,
 
     _cairo_gl_composite_set_source_operand (&setup,
 					    source_to_operand (abstract_src));
-    _cairo_gl_operand_translate (&setup.src, dst_x-src_x, dst_y-src_y);
 
     _cairo_gl_composite_set_mask_operand (&setup,
 					  source_to_operand (abstract_mask));
-    _cairo_gl_operand_translate (&setup.mask, dst_x-mask_x, dst_y-mask_y);
 
     status = _cairo_gl_composite_begin (&setup, &ctx);
     if (unlikely (status))
@@ -216,11 +214,9 @@ composite (void			*_dst,
 
     _cairo_gl_composite_set_source_operand (&setup,
 					    source_to_operand (abstract_src));
-    _cairo_gl_operand_translate (&setup.src, dst_x-src_x, dst_y-src_y);
 
     _cairo_gl_composite_set_mask_operand (&setup,
 					  source_to_operand (abstract_mask));
-    _cairo_gl_operand_translate (&setup.mask, dst_x-mask_x, dst_y-mask_y);
 
     status = _cairo_gl_composite_begin (&setup, &ctx);
     if (unlikely (status))
@@ -251,9 +247,9 @@ lerp (void			*dst,
     cairo_int_status_t status;
 
     /* we could avoid some repetition... */
-    status = composite (dst, CAIRO_OPERATOR_DEST_OUT, mask, NULL,
+    status = composite (dst, CAIRO_OPERATOR_DEST_OUT, src, mask,
+			src_x, src_y,
 			mask_x, mask_y,
-			0, 0,
 			dst_x, dst_y,
 			width, height);
     if (unlikely (status))
@@ -275,8 +271,7 @@ traps_to_operand (void *_dst,
 		  const cairo_rectangle_int_t *extents,
 		  cairo_antialias_t	antialias,
 		  cairo_traps_t		*traps,
-		  cairo_gl_operand_t	*operand,
-		  int dst_x, int dst_y)
+		  cairo_gl_operand_t	*operand)
 {
     pixman_format_code_t pixman_format;
     pixman_image_t *pixman_image;
@@ -320,12 +315,13 @@ traps_to_operand (void *_dst,
 
     _cairo_pattern_init_for_surface (&pattern, mask);
     cairo_matrix_init_translate (&pattern.base.matrix,
-				 -extents->x+dst_x, -extents->y+dst_y);
+				 -extents->x, -extents->y);
     pattern.base.filter = CAIRO_FILTER_NEAREST;
     pattern.base.extend = CAIRO_EXTEND_NONE;
     status = _cairo_gl_operand_init (operand, &pattern.base, _dst,
 				     &_cairo_unbounded_rectangle,
-				     &_cairo_unbounded_rectangle);
+				     &_cairo_unbounded_rectangle,
+				     FALSE);
     _cairo_pattern_fini (&pattern.base);
 
     if (unlikely (status))
@@ -361,8 +357,7 @@ composite_traps (void			*_dst,
 
     _cairo_gl_composite_set_source_operand (&setup,
 					    source_to_operand (abstract_src));
-    _cairo_gl_operand_translate (&setup.src, -src_x-dst_x, -src_y-dst_y);
-    status = traps_to_operand (_dst, extents, antialias, traps, &setup.mask, dst_x, dst_y);
+    status = traps_to_operand (_dst, extents, antialias, traps, &setup.mask);
     if (unlikely (status))
 	goto FAIL;
 
@@ -372,9 +367,9 @@ composite_traps (void			*_dst,
 
     /* XXX clip */
     _cairo_gl_composite_emit_rect (ctx,
-				   extents->x-dst_x, extents->y-dst_y,
-				   extents->x-dst_x+extents->width,
-				   extents->y-dst_y+extents->height, 0);
+				   dst_x, dst_y,
+				   dst_x+extents->width,
+				   dst_y+extents->height, 0);
     status = _cairo_gl_context_release (ctx, CAIRO_STATUS_SUCCESS);
 
 FAIL:

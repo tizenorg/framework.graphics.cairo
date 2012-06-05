@@ -103,25 +103,6 @@ _cairo_time_1s (void)
     return freq.QuadPart;
 }
 
-#ifndef HAVE_UINT64_T
-static cairo_always_inline cairo_time_t
-_cairo_time_from_large_integer (LARGE_INTEGER t)
-{
-    cairo_int64_t r;
-
-    r = _cairo_int64_lsl (_cairo_int32_to_int64 (t.HighPart), 32);
-    r = _cairo_int64_add (r, _cairo_int32_to_int64 (t.LowPart));
-
-    return r;
-}
-#else
-static cairo_always_inline cairo_time_t
-_cairo_time_from_large_integer (LARGE_INTEGER t)
-{
-    return t.QuadPart;
-}
-#endif
-
 cairo_time_t
 _cairo_time_get (void)
 {
@@ -129,7 +110,7 @@ _cairo_time_get (void)
 
     QueryPerformanceCounter (&t);
 
-    return _cairo_time_from_large_integer(t);
+    return t.QuadPart;
 }
 
 #elif defined(CAIRO_CLOCK)

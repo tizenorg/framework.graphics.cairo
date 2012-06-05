@@ -50,17 +50,41 @@ _cairo_compositor_paint (const cairo_compositor_t	*compositor,
 {
     cairo_composite_rectangles_t extents;
     cairo_int_status_t status;
+    cairo_bool_t initialized = TRUE;
 
     TRACE ((stderr, "%s\n", __FUNCTION__));
-    status = _cairo_composite_rectangles_init_for_paint (&extents, surface,
-							 op, source,
-							 clip);
+
+    if (compositor->lazy_init) {
+	status = _cairo_composite_rectangles_lazy_init_for_paint (&extents,
+								  surface,
+								  op, source,
+								  clip);
+	initialized = FALSE;
+    }
+    else
+        status = _cairo_composite_rectangles_init_for_paint (&extents,
+							     surface,
+							     op, source,
+							     clip);
     if (unlikely (status))
 	return status;
 
     do {
 	while (compositor->paint == NULL)
 	    compositor = compositor->delegate;
+
+	if (! compositor->lazy_init && ! initialized) {
+	    /* XXX: we should do better instead of re-init */
+	    _cairo_composite_rectangles_fini (&extents);
+	    status = _cairo_composite_rectangles_init_for_paint (&extents,
+								 surface,
+								 op, source,
+								 clip);
+	    initialized = TRUE;
+
+	    if (unlikely (status))
+		return status;
+	}
 
 	status = compositor->paint (compositor, &extents);
 
@@ -91,17 +115,40 @@ _cairo_compositor_mask (const cairo_compositor_t	*compositor,
 {
     cairo_composite_rectangles_t extents;
     cairo_int_status_t status;
+    cairo_bool_t initialized = TRUE;
 
     TRACE ((stderr, "%s\n", __FUNCTION__));
-    status = _cairo_composite_rectangles_init_for_mask (&extents, surface,
-							op, source, mask,
-							clip);
+
+    if (compositor->lazy_init) {
+	status = _cairo_composite_rectangles_lazy_init_for_mask (&extents,
+								 surface,
+								 op, source,
+								 mask, clip);
+	initialized = FALSE;
+    } else
+	status = _cairo_composite_rectangles_init_for_mask (&extents,
+							    surface,
+							    op, source,
+							    mask, clip);
     if (unlikely (status))
 	return status;
 
     do {
 	while (compositor->mask == NULL)
 	    compositor = compositor->delegate;
+
+	if (! compositor->lazy_init && ! initialized) {
+	    /* XXX: we should do better instead of re-init */
+	    _cairo_composite_rectangles_fini (&extents);
+	    status = _cairo_composite_rectangles_init_for_mask (&extents,
+								surface,
+								op, source,
+								mask, clip);
+	    initialized = TRUE;
+
+	    if (unlikely (status))
+		return status;
+	}
 
 	status = compositor->mask (compositor, &extents);
 
@@ -137,18 +184,47 @@ _cairo_compositor_stroke (const cairo_compositor_t	*compositor,
 {
     cairo_composite_rectangles_t extents;
     cairo_int_status_t status;
+    cairo_bool_t initialized = TRUE;
 
     TRACE ((stderr, "%s\n", __FUNCTION__));
-    status = _cairo_composite_rectangles_init_for_stroke (&extents, surface,
-							  op, source,
-							  path, style, ctm,
-							  clip);
+
+    if (compositor->lazy_init) {
+	status = _cairo_composite_rectangles_lazy_init_for_stroke (&extents,
+								   surface,
+								   op, source,
+								   path, style,
+								   ctm, clip);
+	initialized = FALSE;
+    }
+    else
+	status = _cairo_composite_rectangles_init_for_stroke (&extents,
+							      surface,
+							      op, source,
+							      path, style,
+							      ctm, clip);
     if (unlikely (status))
 	return status;
 
     do {
 	while (compositor->stroke == NULL)
 	    compositor = compositor->delegate;
+
+	if (! compositor->lazy_init && ! initialized) {
+	    /* XXX: we should do better instead of re-init */
+	    _cairo_composite_rectangles_fini (&extents);
+	    status = _cairo_composite_rectangles_init_for_stroke (&extents,
+								  surface,
+								  op,
+								  source,
+								  path,
+								  style,
+								  ctm,
+								  clip);
+	    initialized = TRUE;
+
+	    if (unlikely (status))
+		return status;
+	}
 
 	status = compositor->stroke (compositor, &extents,
 				     path, style, ctm, ctm_inverse,
@@ -184,17 +260,41 @@ _cairo_compositor_fill (const cairo_compositor_t	*compositor,
 {
     cairo_composite_rectangles_t extents;
     cairo_int_status_t status;
+    cairo_bool_t initialized = TRUE;
 
     TRACE ((stderr, "%s\n", __FUNCTION__));
-    status = _cairo_composite_rectangles_init_for_fill (&extents, surface,
-							op, source, path,
-							clip);
+
+    if (compositor->lazy_init) {
+	status = _cairo_composite_rectangles_lazy_init_for_fill (&extents,
+								 surface,
+								 op, source,
+								 path, clip);
+	initialized = FALSE;
+    }
+    else
+	status = _cairo_composite_rectangles_init_for_fill (&extents,
+							    surface,
+							    op, source,
+							    path, clip);
     if (unlikely (status))
 	return status;
 
     do {
 	while (compositor->fill == NULL)
 	    compositor = compositor->delegate;
+
+	if (! compositor->lazy_init && ! initialized) {
+	    /* XXX: we should do better instead of re-init */
+	    _cairo_composite_rectangles_fini (&extents);
+	    status = _cairo_composite_rectangles_init_for_fill (&extents,
+								surface,
+								op, source,
+								path, clip);
+	    initialized = TRUE;
+
+	    if (unlikely (status))
+		return status;
+	}
 
 	status = compositor->fill (compositor, &extents,
 				   path, fill_rule, tolerance, antialias);
@@ -229,19 +329,43 @@ _cairo_compositor_glyphs (const cairo_compositor_t		*compositor,
     cairo_composite_rectangles_t extents;
     cairo_bool_t overlap;
     cairo_int_status_t status;
+    cairo_bool_t initialized = TRUE;
 
     TRACE ((stderr, "%s\n", __FUNCTION__));
-    status = _cairo_composite_rectangles_init_for_glyphs (&extents, surface,
-							  op, source,
-							  scaled_font,
-							  glyphs, num_glyphs,
-							  clip, &overlap);
+
+    if (compositor->lazy_init) {
+	status = _cairo_composite_rectangles_lazy_init_for_glyphs (&extents, surface,
+								  op, source,
+								  scaled_font,
+								  glyphs, num_glyphs,
+								  clip, &overlap);
+	initialized = FALSE;
+    } else
+	status = _cairo_composite_rectangles_init_for_glyphs (&extents, surface,
+							     op, source,
+							     scaled_font,
+							     glyphs, num_glyphs,
+							     clip, &overlap);
     if (unlikely (status))
 	return status;
 
     do {
 	while (compositor->glyphs == NULL)
 	    compositor = compositor->delegate;
+
+	if (! compositor->lazy_init && ! initialized) {
+	    /* XXX: we should do better instead of re-init */
+	    _cairo_composite_rectangles_fini (&extents);
+	    status = _cairo_composite_rectangles_init_for_glyphs (&extents, surface,
+								 op, source,
+								 scaled_font,
+								 glyphs, num_glyphs,
+								 clip, &overlap);
+	    initialized = TRUE;
+
+	    if (unlikely (status))
+		return status;
+	}
 
 	status = compositor->glyphs (compositor, &extents,
 				     scaled_font, glyphs, num_glyphs, overlap);
