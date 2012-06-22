@@ -1,4 +1,3 @@
-#sbs-git:slp/unmodified/cairo cairo 1.11.3 076a40b95caaadbc4a05b92a1a1d7840427e05b7
 Name:       cairo
 Summary:    A vector graphics library
 Version:    1.12.3
@@ -25,8 +24,8 @@ BuildRequires:  pkgconfig(xcb)
 BuildRequires:  pkgconfig(xcb-render)
 BuildRequires:  pkgconfig(xcb-renderutil)
 BuildRequires:  pkgconfig(xcb-shm)
-#BuildRequires:  pkgconfig(librsvg-2.0)
 BuildRequires:  binutils-devel
+BuildRequires:  which
 
 %description
 Cairo is a 2D graphics library with support for multiple output devices.
@@ -45,7 +44,11 @@ cairo development libraries and head files
 
 %build
 cp %{SOURCE1001} .
-NOCONFIGURE=1 ./autogen.sh
+> boilerplate/Makefile.am.features
+> src/Makefile.am.features
+touch ChangeLog
+
+autoreconf --force --install --verbose || exit $?
 %configure --disable-static \
     --disable-win32 \
     --enable-directfb=no \
@@ -58,7 +61,6 @@ NOCONFIGURE=1 ./autogen.sh
 make %{?jobs:-j%jobs}
 
 %install
-rm -rf %{buildroot}
 %make_install
 rm -rf $RPM_BUILD_ROOT/usr/share/gtk-doc
 
@@ -78,4 +80,3 @@ rm -rf $RPM_BUILD_ROOT/usr/share/gtk-doc
 %exclude %{_bindir}/cairo-trace
 %exclude %{_libdir}/cairo/libcairo-trace.so
 %exclude %{_libdir}/cairo/libcairo-trace.so.*
-

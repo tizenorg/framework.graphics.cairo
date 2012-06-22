@@ -1,0 +1,22 @@
+* Fri Jun 22 2012 Anas Nashif <anas.nashif@intel.com> a597cc1
+- buildRequire which
+
+* Tue Jun 05 2012 Dongyeon Kim <dy5.kim@samsung.com> 364e987
+- Update cairo gl/msaa compositor to latest
+- Update to working version of cairo 1.12.3
+- Update to 1.12.2
+
+* Wed May 30 2012 Ryan Ware <ryan.r.ware@intel.com> 38a4a64
+- Add default Smack manifest for cairo.spec
+
+* Sun Apr 29 2012 Kim Kibum <kb0929.kim@samsung.com> 4294d82
+- upload tizen1.0 source
+
+* Thu Feb 09 2012 Deokjin Kim <deokjin81.kim@samsung.com> 4c3a179
+- Remove TIZEN_FIX_DASHED_LINE_STROKE flag. This patch causes segmentation fault sometimes.
+
+* Fri Jan 06 2012 Kibum Kim <kb0929.kim@samsung.com> 141a9bb
+- Git init
+[ Eunkyoung Kim ]
+- Initial empty repository
+
