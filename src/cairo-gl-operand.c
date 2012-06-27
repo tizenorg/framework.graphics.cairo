@@ -123,6 +123,7 @@ _cairo_gl_copy_texture (cairo_gl_surface_t *dst,
 			cairo_gl_surface_t *image,
 			int x, int y,
 			int width, int height,
+			cairo_bool_t replace,
 			cairo_gl_context_t **ctx)
 {
     cairo_int_status_t status;
@@ -137,6 +138,9 @@ _cairo_gl_copy_texture (cairo_gl_surface_t *dst,
     status = _cairo_gl_context_acquire (dst->base.device, &ctx_out);
     if(unlikely (status))
 	return status;
+
+    if (replace)
+	_cairo_gl_composite_flush (ctx_out);
 
     /* Bind framebuffer of source image. */
     dispatch = &ctx_out->dispatch;
@@ -166,6 +170,7 @@ _cairo_gl_image_cache_replace_image (cairo_gl_image_t *image_node,
     status = _cairo_gl_copy_texture (dst, image, image_node->node.x,
 				     image_node->node.y,
 				     image->width, image->height,
+				     TRUE,
 				     ctx);
     image->content_changed = FALSE;
     return status;
@@ -233,7 +238,7 @@ _cairo_gl_image_cache_add_image (cairo_gl_context_t *ctx,
     /* Paint image to cache. */
     status = _cairo_gl_copy_texture (dst, image, node->x, node->y,
 				     image->width, image->height,
-				     &ctx);
+				     FALSE, &ctx);
     if (unlikely (status))
 	return status;
 
@@ -326,16 +331,13 @@ _cairo_gl_subsurface_clone_operand_init (cairo_gl_operand_t *operand,
     if (unlikely (status))
         return status;
 
-    if (surface->width == dst->width &&
-	surface->height == dst->height)
-	dst->needs_to_cache = TRUE;
-
     attributes = &operand->texture.attributes;
 
     operand->type = CAIRO_GL_OPERAND_TEXTURE;
     operand->texture.surface = surface;
     operand->texture.owns_surface = surface;
     operand->texture.tex = surface->tex;
+    operand->texture.use_atlas = FALSE;
 
     if (_cairo_gl_device_requires_power_of_two_textures (dst->base.device)) {
 	attributes->matrix = src->base.matrix;
@@ -433,7 +435,7 @@ _cairo_gl_subsurface_operand_init (cairo_gl_operand_t *operand,
 	    operand->texture.p1.x += 0.5 / IMAGE_CACHE_WIDTH;
 	    operand->texture.p1.y += 0.5 / IMAGE_CACHE_HEIGHT;
 	    operand->texture.p2.x -= 0.5 / IMAGE_CACHE_WIDTH;
-	    operand->texture.p2.y - 0.5 / IMAGE_CACHE_HEIGHT;
+	    operand->texture.p2.y -= 0.5 / IMAGE_CACHE_HEIGHT;
 	}
 
 	cairo_matrix_multiply (&attributes->matrix,
@@ -529,7 +531,7 @@ _cairo_gl_surface_operand_init (cairo_gl_operand_t *operand,
 	    operand->texture.p1.x += 0.5 / IMAGE_CACHE_WIDTH;
 	    operand->texture.p1.y += 0.5 / IMAGE_CACHE_HEIGHT;
 	    operand->texture.p2.x -= 0.5 / IMAGE_CACHE_WIDTH;
-	    operand->texture.p2.y - 0.5 / IMAGE_CACHE_HEIGHT;
+	    operand->texture.p2.y -= 0.5 / IMAGE_CACHE_HEIGHT;
 	}
 
 	operand->texture.surface = ctx->image_cache.surface;
@@ -587,6 +589,11 @@ _cairo_gl_pattern_texture_setup (cairo_gl_operand_t *operand,
 							extents->height,
 							-1);
     if (unlikely (image->status)) {
+	status = _cairo_gl_context_release (ctx, status);
+
+	/* The error status in the image is issue that caused the problem. */
+	status = image->status;
+
 	cairo_surface_destroy (image);
 	goto fail;
     }
@@ -617,18 +624,8 @@ _cairo_gl_pattern_texture_setup (cairo_gl_operand_t *operand,
     operand->texture.owns_surface = surface;
     operand->texture.attributes.matrix.x0 -= extents->x * operand->texture.attributes.matrix.xx;
     operand->texture.attributes.matrix.y0 -= extents->y * operand->texture.attributes.matrix.yy;
-
-    /* We check whether we need to cache the dst in image_cache, we
-       only cache dst if we are painting the entire image to dst.  The
-       logic is as follows - app could generate cache for a image
-       surface by painting the image surface to a gl surface and use
-       the gl surface as a cache, we further cache the gl surface to
-       image_cache. */
-    if (dst->width == surface->width &&
-	dst->height == surface->height)
-	dst->needs_to_cache = TRUE;
-    else
-	dst->needs_to_cache = FALSE;
+    dst->needs_to_cache = TRUE;
+    operand->texture.use_atlas = FALSE;
 
     return CAIRO_STATUS_SUCCESS;
 

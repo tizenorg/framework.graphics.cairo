@@ -24,6 +24,7 @@ BuildRequires:  pkgconfig(xcb)
 BuildRequires:  pkgconfig(xcb-render)
 BuildRequires:  pkgconfig(xcb-renderutil)
 BuildRequires:  pkgconfig(xcb-shm)
+BuildRequires:  pkgconfig(opengl-es-20)
 BuildRequires:  binutils-devel
 BuildRequires:  which
 
@@ -56,7 +57,14 @@ autoreconf --force --install --verbose || exit $?
     --with-x \
     --x-includes=%{_includedir} \
     --x-libraries=%{_libdir} \
+    --disable-gtk-doc \
+%ifarch %ix86
     --enable-xcb
+%else 
+    --enable-xcb \
+    --enable-egl=yes \
+    --enable-glesv2=yes
+%endif
 
 make %{?jobs:-j%jobs}
 

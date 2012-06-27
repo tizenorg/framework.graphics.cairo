@@ -51,7 +51,9 @@ configure_flags += \
 --with-x \
 --x-includes=$(PREFIX)/include \
 --x-libraries=$(PREFIX)/lib \
---enable-static 
+--enable-static \
+--enable-egl=yes \
+--enable-glesv2=yes
 
 
 ifneq ($(DEB_BUILD_GNU_TYPE),$(DEB_HOST_GNU_TYPE))

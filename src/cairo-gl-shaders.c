@@ -161,6 +161,8 @@ link_shader_core_2_0 (cairo_gl_context_t *ctx, GLuint *program,
 
     dispatch->BindAttribLocation (*program, CAIRO_GL_VERTEX_ATTRIB_INDEX,
 				  "Vertex");
+    dispatch->BindAttribLocation (*program, CAIRO_GL_COLOR_ATTRIB_INDEX,
+				  "Color");
     dispatch->BindAttribLocation (*program, CAIRO_GL_COVERAGE_ATTRIB_INDEX,
 				  "Coverage");
     dispatch->BindAttribLocation (*program, CAIRO_GL_TEXCOORD0_ATTRIB_INDEX,
