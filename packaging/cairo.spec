@@ -1,7 +1,7 @@
 Name:       cairo
 Summary:    A vector graphics library
 Version:    1.12.3
-Release:    2
+Release:    3
 Group:      System/Libraries
 License:    LGPLv2 or MPLv1.1
 URL:        http://www.cairographics.org

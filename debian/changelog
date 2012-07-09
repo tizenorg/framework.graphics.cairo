@@ -1,4 +1,12 @@
-cairo (1.12.3-slp2+slp2+2) unstable; urgency=low
+cairo (1.12.3-slp2+3) unstable; urgency=low
+
+  * gl: Fix color differences at gradient boundaries
+  * Git: slp/unmodified/cairo.git
+  * Tag: cairo_1.12.3-slp2+3
+
+ -- Dongyeon Kim <dy5.kim@samsung.com>  Thu, 05 Jul 2012 10:10:35 +0900
+
+cairo (1.12.3-slp2+2) unstable; urgency=low
 
   * Update cairo gl/msaa compositor to latest
   * Git: unmodified/cairo.git
