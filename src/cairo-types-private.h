@@ -52,7 +52,7 @@ CAIRO_BEGIN_DECLS
  * @Short_Description: Generic data types
  *
  * This section lists generic data types used in the cairo API.
- */
+ **/
 
 typedef struct _cairo_array cairo_array_t;
 typedef struct _cairo_backend cairo_backend_t;
@@ -66,6 +66,7 @@ typedef struct _cairo_color_stop cairo_color_stop_t;
 typedef struct _cairo_contour cairo_contour_t;
 typedef struct _cairo_contour_chain cairo_contour_chain_t;
 typedef struct _cairo_contour_iter cairo_contour_iter_t;
+typedef struct _cairo_damage cairo_damage_t;
 typedef struct _cairo_device_backend cairo_device_backend_t;
 typedef struct _cairo_font_face_backend     cairo_font_face_backend_t;
 typedef struct _cairo_gstate cairo_gstate_t;
@@ -130,7 +131,7 @@ struct _cairo_observer {
  *
  *	_cairo_hash_table_insert (hash_table, &my_entry->base);
  *
- * IMPORTANT: The caller is reponsible for initializing
+ * IMPORTANT: The caller is responsible for initializing
  * my_entry->base.hash with a hash code derived from the key. The
  * essential property of the hash code is that keys_equal must never
  * return %TRUE for two keys that have different hashes. The best hash

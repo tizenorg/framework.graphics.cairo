@@ -1,19 +1,25 @@
-AC_PREREQ(2.59)
+AC_PREREQ([2.63])
 CAIRO_PARSE_VERSION
 AC_INIT([cairo],
 	[cairo_version_major.cairo_version_minor.cairo_version_micro],
-	[http://bugs.freedesktop.org/enter_bug.cgi?product=cairo])
+	[http://bugs.freedesktop.org/enter_bug.cgi?product=cairo],
+	[cairo],
+	[http://cairographics.org/])
 AC_CONFIG_AUX_DIR(build)
 AC_CONFIG_MACRO_DIR(build)
-AC_GNU_SOURCE
 AC_USE_SYSTEM_EXTENSIONS
 AC_CONFIG_SRCDIR(src/cairo.h)
 AC_CONFIG_HEADERS(config.h)
-AM_INIT_AUTOMAKE([1.9.6 gnu -Wall no-define])
-m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
-AC_LIBTOOL_WIN32_DLL dnl Must be called before AC_PROG_LIBTOOL
-AC_PROG_LIBTOOL dnl ([1.4]) Don't remove!
-GTK_DOC_CHECK([1.6])
+
+AM_INIT_AUTOMAKE([1.11 foreign -Wall no-define no-dist-gzip dist-xz])
+AM_SILENT_RULES([yes])
+
+# Initialize libtool
+LT_PREREQ([2.2])
+LT_INIT([win32-dll])
+
+# Api documentation
+GTK_DOC_CHECK([1.15],[--flavour no-tmpl])
 
 AC_SYS_LARGEFILE
 
@@ -52,6 +58,7 @@ AM_CONDITIONAL(CAIRO_HAS_DL, test "x$have_dl" = "xyes")
 if test "x$have_dlsym" = "xyes"; then
   AC_DEFINE([CAIRO_HAS_DLSYM], 1, [Define to 1 if dlsym is available])
 fi
+AM_CONDITIONAL(CAIRO_HAS_DLSYM, test "x$have_dlsym" = "xyes")
 
 dnl ===========================================================================
 
@@ -311,7 +318,7 @@ CAIRO_ENABLE_SURFACE_BACKEND(gl, OpenGL, no, [
 
 dnl ===========================================================================
 CAIRO_ENABLE_SURFACE_BACKEND(glesv2, OpenGLESv2, no, [
-  glesv2_REQUIRES="glesv2"
+  glesv2_REQUIRES="gles20"
   PKG_CHECK_MODULES(glesv2, $glesv2_REQUIRES,, [
 	  dnl Fallback to searching for headers
 	  AC_CHECK_HEADER(GLES2/gl2.h,, [use_glesv2="no (glesv2.pc nor OpenGL ES 2.0 headers not found)"])
@@ -325,6 +332,12 @@ CAIRO_ENABLE_SURFACE_BACKEND(glesv2, OpenGLESv2, no, [
   fi
 
   need_egl_functions=yes
+])
+
+dnl ===========================================================================
+CAIRO_ENABLE_SURFACE_BACKEND(cogl, Cogl, no, [
+  cogl_REQUIRES="cogl-2.0-experimental"
+  PKG_CHECK_MODULES(cogl, $cogl_REQUIRES,, [use_cogl="no"])
 ])
 
 dnl ===========================================================================
@@ -488,7 +501,7 @@ if test "x$use_ft" = "xyes"; then
   AC_DEFINE_UNQUOTED(HAVE_FT_BITMAP_SIZE_Y_PPEM,$HAVE_FT_BITMAP_SIZE_Y_PPEM,
                      [FT_Bitmap_Size structure includes y_ppem field])
 
-  AC_CHECK_FUNCS(FT_GlyphSlot_Embolden FT_Load_Sfnt_Table FT_Library_SetLcdFilter)
+  AC_CHECK_FUNCS(FT_GlyphSlot_Embolden FT_GlyphSlot_Oblique FT_Load_Sfnt_Table FT_Library_SetLcdFilter)
 
   LIBS="$_save_libs"
   CFLAGS="$_save_cflags"
@@ -606,7 +619,7 @@ CAIRO_ENABLE(test_surfaces, test surfaces, no)
 dnl ===========================================================================
 
 CAIRO_ENABLE_SURFACE_BACKEND(image, image, always, [
-  pixman_REQUIRES="pixman-1 >= 0.21.0"
+  pixman_REQUIRES="pixman-1 >= 0.22.0"
   PKG_CHECK_MODULES(pixman, $pixman_REQUIRES, , [AC_MSG_RESULT(no)
   use_image="no (requires $pixman_REQUIRES http://cairographics.org/releases/)"])
   image_REQUIRES=$pixman_REQUIRES

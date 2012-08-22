@@ -35,6 +35,7 @@
 
 #include "cairoint.h"
 
+#include "cairo-clip-inline.h"
 #include "cairo-error-private.h"
 #include "cairo-image-surface-private.h"
 #include "cairo-recording-surface-private.h"
@@ -50,6 +51,7 @@ _cairo_surface_subsurface_finish (void *abstract_surface)
     cairo_surface_subsurface_t *surface = abstract_surface;
 
     cairo_surface_destroy (surface->target);
+    cairo_surface_destroy (surface->snapshot);
 
     return CAIRO_STATUS_SUCCESS;
 }
@@ -60,6 +62,10 @@ _cairo_surface_subsurface_create_similar (void *other,
 					  int width, int height)
 {
     cairo_surface_subsurface_t *surface = other;
+
+    if (surface->target->backend->create_similar == NULL)
+	return NULL;
+
     return surface->target->backend->create_similar (surface->target, content, width, height);
 }
 
@@ -69,6 +75,10 @@ _cairo_surface_subsurface_create_similar_image (void *other,
 						int width, int height)
 {
     cairo_surface_subsurface_t *surface = other;
+
+    if (surface->target->backend->create_similar_image == NULL)
+	return NULL;
+
     return surface->target->backend->create_similar_image (surface->target,
 							   format,
 							   width, height);
@@ -284,138 +294,53 @@ _cairo_surface_subsurface_get_font_options (void *abstract_surface,
 	surface->target->backend->get_font_options (surface->target, options);
 }
 
-struct extra {
-    cairo_image_surface_t *image;
-    void *image_extra;
-};
+static cairo_surface_t *
+_cairo_surface_subsurface_source (void *abstract_surface,
+				  cairo_rectangle_int_t *extents)
+{
+    cairo_surface_subsurface_t *surface = abstract_surface;
+    cairo_surface_t *source;
+
+    source = _cairo_surface_get_source (surface->target, extents);
+    if (extents)
+	*extents = surface->extents;
+
+    return source;
+}
 
 static cairo_status_t
 _cairo_surface_subsurface_acquire_source_image (void                    *abstract_surface,
 						cairo_image_surface_t  **image_out,
 						void                   **extra_out)
 {
-    cairo_rectangle_int_t target_extents;
     cairo_surface_subsurface_t *surface = abstract_surface;
-    cairo_image_surface_t *image;
+    cairo_surface_pattern_t pattern;
+    cairo_surface_t *image;
     cairo_status_t status;
-    struct extra *extra;
-    uint8_t *data;
-    cairo_bool_t ret;
 
-    if (surface->target->type == CAIRO_SURFACE_TYPE_RECORDING) {
-	cairo_surface_t *meta, *snapshot;
+    image = _cairo_image_surface_create_with_content (surface->base.content,
+						      surface->extents.width,
+						      surface->extents.height);
+    if (unlikely (image->status))
+	return image->status;
 
-	snapshot = _cairo_surface_has_snapshot (&surface->base,
-						&_cairo_image_surface_backend);
-	if (snapshot != NULL) {
-	    *image_out = (cairo_image_surface_t *) cairo_surface_reference (snapshot);
-	    *extra_out = NULL;
-	    return CAIRO_STATUS_SUCCESS;
-	}
-
-	meta = surface->target;
-	if (_cairo_surface_is_snapshot (meta))
-	    meta = _cairo_surface_snapshot_get_target (meta);
-
-	if (! _cairo_surface_has_snapshot (meta, &_cairo_image_surface_backend)) {
-	    cairo_surface_pattern_t pattern;
-
-	    image = (cairo_image_surface_t *)
-		_cairo_image_surface_create_with_content (meta->content,
-							  surface->extents.width,
-							  surface->extents.height);
-	    if (unlikely (image->base.status))
-		return image->base.status;
-
-	    _cairo_pattern_init_for_surface (&pattern, &image->base);
-	    cairo_matrix_init_translate (&pattern.base.matrix,
-					 -surface->extents.x, -surface->extents.y);
-	    pattern.base.filter = CAIRO_FILTER_NEAREST;
-	    status = _cairo_surface_paint (&image->base,
-					   CAIRO_OPERATOR_SOURCE,
-					   &pattern.base, NULL);
-	    _cairo_pattern_fini (&pattern.base);
-	    if (unlikely (status)) {
-		cairo_surface_destroy (&image->base);
-		return status;
-	    }
-
-	    _cairo_surface_attach_snapshot (&surface->base, &image->base, NULL);
-
-	    *image_out = image;
-	    *extra_out = NULL;
-	    return CAIRO_STATUS_SUCCESS;
-	}
+    _cairo_pattern_init_for_surface (&pattern, surface->target);
+    cairo_matrix_init_translate (&pattern.base.matrix,
+				 surface->extents.x,
+				 surface->extents.y);
+    pattern.base.filter = CAIRO_FILTER_NEAREST;
+    status = _cairo_surface_paint (image,
+				   CAIRO_OPERATOR_SOURCE,
+				   &pattern.base, NULL);
+    _cairo_pattern_fini (&pattern.base);
+    if (unlikely (status)) {
+	cairo_surface_destroy (image);
+	return status;
     }
 
-    extra = malloc (sizeof (struct extra));
-    if (unlikely (extra == NULL))
-	return _cairo_error (CAIRO_STATUS_NO_MEMORY);
-
-    status = _cairo_surface_acquire_source_image (surface->target, &extra->image, &extra->image_extra);
-    if (unlikely (status))
-	goto CLEANUP;
-
-    ret = _cairo_surface_get_extents (&extra->image->base, &target_extents);
-    assert (ret);
-
-    /* only copy if we need to perform sub-byte manipulation */
-    if (PIXMAN_FORMAT_BPP (extra->image->pixman_format) >= 8 &&
-	target_extents.x <= surface->extents.x &&
-	target_extents.y <= surface->extents.y &&
-	surface->extents.x + surface->extents.width <= target_extents.x + target_extents.width &&
-	surface->extents.y + surface->extents.height <= target_extents.y + target_extents.height) {
-
-	assert ((PIXMAN_FORMAT_BPP (extra->image->pixman_format) % 8) == 0);
-
-	data = extra->image->data + surface->extents.y * extra->image->stride;
-	data += PIXMAN_FORMAT_BPP (extra->image->pixman_format) / 8 * surface->extents.x;
-
-	image = (cairo_image_surface_t *)
-	    _cairo_image_surface_create_with_pixman_format (data,
-							    extra->image->pixman_format,
-							    surface->extents.width,
-							    surface->extents.height,
-							    extra->image->stride);
-	if (unlikely ((status = image->base.status)))
-	    goto CLEANUP_IMAGE;
-
-        image->base.is_clear = FALSE;
-    } else {
-	cairo_surface_pattern_t pattern;
-
-	image = (cairo_image_surface_t *)
-	    _cairo_image_surface_create_with_pixman_format (NULL,
-							    extra->image->pixman_format,
-							    surface->extents.width,
-							    surface->extents.height,
-							    0);
-	if (unlikely ((status = image->base.status)))
-	    goto CLEANUP_IMAGE;
-
-	_cairo_pattern_init_for_surface (&pattern, &image->base);
-	cairo_matrix_init_translate (&pattern.base.matrix,
-				     -surface->extents.x, -surface->extents.y);
-	pattern.base.filter = CAIRO_FILTER_NEAREST;
-	status = _cairo_surface_paint (&image->base,
-				       CAIRO_OPERATOR_SOURCE,
-				       &pattern.base, NULL);
-	_cairo_pattern_fini (&pattern.base);
-	if (unlikely (status)) {
-	    cairo_surface_destroy (&image->base);
-	    return status;
-	}
-    }
-
-    *image_out = image;
-    *extra_out = extra;
+    *image_out = (cairo_image_surface_t *)image;
+    *extra_out = NULL;
     return CAIRO_STATUS_SUCCESS;
-
-CLEANUP_IMAGE:
-    _cairo_surface_release_source_image (surface->target, extra->image, extra->image_extra);
-CLEANUP:
-    free (extra);
-    return status;
 }
 
 static void
@@ -423,15 +348,6 @@ _cairo_surface_subsurface_release_source_image (void                   *abstract
 						cairo_image_surface_t  *image,
 						void                   *abstract_extra)
 {
-    cairo_surface_subsurface_t *surface = abstract_surface;
-
-    if (abstract_extra != NULL) {
-	struct extra *extra = abstract_extra;
-
-	_cairo_surface_release_source_image (surface->target, extra->image, extra->image_extra);
-	free (extra);
-    }
-
     cairo_surface_destroy (&image->base);
 }
 
@@ -442,6 +358,8 @@ _cairo_surface_subsurface_snapshot (void *abstract_surface)
     cairo_surface_pattern_t pattern;
     cairo_surface_t *clone;
     cairo_status_t status;
+
+    TRACE ((stderr, "%s: target=%d\n", __FUNCTION__, surface->target->unique_id));
 
     clone = _cairo_surface_create_similar_scratch (surface->target,
 						   surface->target->content,
@@ -485,6 +403,7 @@ static const cairo_surface_backend_t _cairo_surface_subsurface_backend = {
     _cairo_surface_subsurface_map_to_image,
     _cairo_surface_subsurface_unmap_image,
 
+    _cairo_surface_subsurface_source,
     _cairo_surface_subsurface_acquire_source_image,
     _cairo_surface_subsurface_release_source_image,
     _cairo_surface_subsurface_snapshot,
@@ -544,6 +463,9 @@ cairo_surface_create_for_rectangle (cairo_surface_t *target,
 {
     cairo_surface_subsurface_t *surface;
 
+    if (unlikely (width < 0 || height < 0))
+	return _cairo_surface_create_in_error (_cairo_error (CAIRO_STATUS_INVALID_SIZE));
+
     if (unlikely (target->status))
 	return _cairo_surface_create_in_error (target->status);
     if (unlikely (target->finished))
@@ -567,6 +489,8 @@ cairo_surface_create_for_rectangle (cairo_surface_t *target,
     surface->extents.y = ceil (y);
     surface->extents.width = floor (x + width) - surface->extents.x;
     surface->extents.height = floor (y + height) - surface->extents.y;
+    if ((surface->extents.width | surface->extents.height) < 0)
+	surface->extents.width = surface->extents.height = 0;
 
     if (target->backend->type == CAIRO_SURFACE_TYPE_SUBSURFACE) {
 	/* Maintain subsurfaces as 1-depth */
@@ -577,6 +501,9 @@ cairo_surface_create_for_rectangle (cairo_surface_t *target,
     }
 
     surface->target = cairo_surface_reference (target);
+    surface->base.type = surface->target->type;
+
+    surface->snapshot = NULL;
 
     return &surface->base;
 }
@@ -608,8 +535,47 @@ _cairo_surface_create_for_rectangle_int (cairo_surface_t *target,
     surface->extents = *extents;
     surface->extents.x += target->device_transform.x0;
     surface->extents.y += target->device_transform.y0;
+
     surface->target = cairo_surface_reference (target);
+    surface->base.type = surface->target->type;
+
+    surface->snapshot = NULL;
 
     return &surface->base;
 }
 /* XXX observe mark-dirty */
+
+static void
+_cairo_surface_subsurface_detach_snapshot (cairo_surface_t *surface)
+{
+    cairo_surface_subsurface_t *ss = (cairo_surface_subsurface_t *) surface;
+
+    TRACE ((stderr, "%s: target=%d\n", __FUNCTION__, ss->target->unique_id));
+
+    cairo_surface_destroy (ss->snapshot);
+    ss->snapshot = NULL;
+}
+
+void
+_cairo_surface_subsurface_set_snapshot (cairo_surface_t *surface,
+					cairo_surface_t *snapshot)
+{
+    cairo_surface_subsurface_t *ss = (cairo_surface_subsurface_t *) surface;
+
+    TRACE ((stderr, "%s: target=%d, snapshot=%d\n", __FUNCTION__,
+	    ss->target->unique_id, snapshot->unique_id));
+
+    /* FIXME: attaching the subsurface as a snapshot to its target creates
+     * a reference cycle.  Let's make this call as a no-op until that bug
+     * is fixed.
+     */
+    return;
+
+    if (ss->snapshot)
+	_cairo_surface_detach_snapshot (ss->snapshot);
+
+    ss->snapshot = cairo_surface_reference (snapshot);
+
+    _cairo_surface_attach_snapshot (ss->target, &ss->base,
+				    _cairo_surface_subsurface_detach_snapshot);
+}

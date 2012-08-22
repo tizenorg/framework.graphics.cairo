@@ -39,7 +39,7 @@
 #define _BSD_SOURCE /* for hypot() */
 #include "cairoint.h"
 
-#include "cairo-box-private.h"
+#include "cairo-box-inline.h"
 #include "cairo-boxes-private.h"
 #include "cairo-error-private.h"
 #include "cairo-path-fixed-private.h"
@@ -48,8 +48,10 @@
 
 typedef struct _segment_t {
     cairo_point_t p1, p2;
-    cairo_bool_t is_horizontal;
-    cairo_bool_t has_join;
+    unsigned flags;
+#define HORIZONTAL 0x1
+#define FORWARDS 0x2
+#define JOIN 0x4
 } segment_t;
 
 typedef struct _cairo_rectilinear_stroker {
@@ -57,7 +59,7 @@ typedef struct _cairo_rectilinear_stroker {
     const cairo_matrix_t *ctm;
     cairo_antialias_t antialias;
 
-    cairo_fixed_t half_line_width;
+    cairo_fixed_t half_line_x, half_line_y;
     cairo_boxes_t *boxes;
     cairo_point_t current_point;
     cairo_point_t first_point;
@@ -82,11 +84,11 @@ _cairo_rectilinear_stroker_limit (cairo_rectilinear_stroker_t *stroker,
     stroker->has_bounds = TRUE;
     _cairo_boxes_get_extents (boxes, num_boxes, &stroker->bounds);
 
-    stroker->bounds.p1.x -= stroker->half_line_width;
-    stroker->bounds.p2.x += stroker->half_line_width;
+    stroker->bounds.p1.x -= stroker->half_line_x;
+    stroker->bounds.p2.x += stroker->half_line_x;
 
-    stroker->bounds.p1.y -= stroker->half_line_width;
-    stroker->bounds.p2.y += stroker->half_line_width;
+    stroker->bounds.p1.y -= stroker->half_line_y;
+    stroker->bounds.p2.y += stroker->half_line_y;
 }
 
 static cairo_bool_t
@@ -122,15 +124,17 @@ _cairo_rectilinear_stroker_init (cairo_rectilinear_stroker_t	*stroker,
 	return FALSE;
     }
 
-    if (! _cairo_matrix_has_unity_scale (ctm))
+    if (! _cairo_matrix_is_scale (ctm))
 	return FALSE;
 
     stroker->stroke_style = stroke_style;
     stroker->ctm = ctm;
     stroker->antialias = antialias;
 
-    stroker->half_line_width =
-	_cairo_fixed_from_double (stroke_style->line_width / 2.0);
+    stroker->half_line_x =
+	_cairo_fixed_from_double (fabs(ctm->xx) * stroke_style->line_width / 2.0);
+    stroker->half_line_y =
+	_cairo_fixed_from_double (fabs(ctm->yy) * stroke_style->line_width / 2.0);
 
     stroker->open_sub_path = FALSE;
     stroker->segments = stroker->segments_embedded;
@@ -157,8 +161,7 @@ static cairo_status_t
 _cairo_rectilinear_stroker_add_segment (cairo_rectilinear_stroker_t *stroker,
 					const cairo_point_t	*p1,
 					const cairo_point_t	*p2,
-					cairo_bool_t		 is_horizontal,
-					cairo_bool_t		 has_join)
+					unsigned		 flags)
 {
     if (CAIRO_INJECT_FAULT ())
 	return _cairo_error (CAIRO_STATUS_NO_MEMORY);
@@ -187,8 +190,7 @@ _cairo_rectilinear_stroker_add_segment (cairo_rectilinear_stroker_t *stroker,
 
     stroker->segments[stroker->num_segments].p1 = *p1;
     stroker->segments[stroker->num_segments].p2 = *p2;
-    stroker->segments[stroker->num_segments].has_join = has_join;
-    stroker->segments[stroker->num_segments].is_horizontal = is_horizontal;
+    stroker->segments[stroker->num_segments].flags = flags;
     stroker->num_segments++;
 
     return CAIRO_STATUS_SUCCESS;
@@ -198,7 +200,8 @@ static cairo_status_t
 _cairo_rectilinear_stroker_emit_segments (cairo_rectilinear_stroker_t *stroker)
 {
     cairo_line_cap_t line_cap = stroker->stroke_style->line_cap;
-    cairo_fixed_t half_line_width = stroker->half_line_width;
+    cairo_fixed_t half_line_x = stroker->half_line_x;
+    cairo_fixed_t half_line_y = stroker->half_line_y;
     cairo_status_t status;
     int i;
 
@@ -239,26 +242,26 @@ _cairo_rectilinear_stroker_emit_segments (cairo_rectilinear_stroker_t *stroker)
 	    if (a->y == b->y) {
 		if (a->x < b->x) {
 		    if (lengthen_initial)
-			a->x -= half_line_width;
+			a->x -= half_line_x;
 		    if (lengthen_final)
-			b->x += half_line_width;
+			b->x += half_line_x;
 		} else {
 		    if (lengthen_initial)
-			a->x += half_line_width;
+			a->x += half_line_x;
 		    if (lengthen_final)
-			b->x -= half_line_width;
+			b->x -= half_line_x;
 		}
 	    } else {
 		if (a->y < b->y) {
 		    if (lengthen_initial)
-			a->y -= half_line_width;
+			a->y -= half_line_y;
 		    if (lengthen_final)
-			b->y += half_line_width;
+			b->y += half_line_y;
 		} else {
 		    if (lengthen_initial)
-			a->y += half_line_width;
+			a->y += half_line_y;
 		    if (lengthen_final)
-			b->y -= half_line_width;
+			b->y -= half_line_y;
 		}
 	    }
 	}
@@ -266,11 +269,11 @@ _cairo_rectilinear_stroker_emit_segments (cairo_rectilinear_stroker_t *stroker)
 	/* Form the rectangle by expanding by half the line width in
 	 * either perpendicular direction. */
 	if (a->y == b->y) {
-	    a->y -= half_line_width;
-	    b->y += half_line_width;
+	    a->y -= half_line_y;
+	    b->y += half_line_y;
 	} else {
-	    a->x -= half_line_width;
-	    b->x += half_line_width;
+	    a->x -= half_line_x;
+	    b->x += half_line_x;
 	}
 
 	if (a->x < b->x) {
@@ -302,7 +305,8 @@ _cairo_rectilinear_stroker_emit_segments_dashed (cairo_rectilinear_stroker_t *st
 {
     cairo_status_t status;
     cairo_line_cap_t line_cap = stroker->stroke_style->line_cap;
-    cairo_fixed_t half_line_width = stroker->half_line_width;
+    cairo_fixed_t half_line_x = stroker->half_line_x;
+    cairo_fixed_t half_line_y = stroker->half_line_y;
     int i;
 
     for (i = 0; i < stroker->num_segments; i++) {
@@ -313,45 +317,43 @@ _cairo_rectilinear_stroker_emit_segments_dashed (cairo_rectilinear_stroker_t *st
 	a = &stroker->segments[i].p1;
 	b = &stroker->segments[i].p2;
 
-	is_horizontal = stroker->segments[i].is_horizontal;
+	is_horizontal = stroker->segments[i].flags & HORIZONTAL;
 
 	/* Handle the joins for a potentially degenerate segment. */
 	if (line_cap == CAIRO_LINE_CAP_BUTT &&
-	    stroker->segments[i].has_join &&
+	    stroker->segments[i].flags & JOIN &&
 	    (i != stroker->num_segments - 1 ||
 	     (! stroker->open_sub_path && stroker->dash.dash_starts_on)))
 	{
 	    cairo_slope_t out_slope;
 	    int j = (i + 1) % stroker->num_segments;
+	    cairo_bool_t forwards = !!(stroker->segments[i].flags & FORWARDS);
 
-	    box.p1 = stroker->segments[i].p1;
-	    box.p2 = stroker->segments[i].p2;
 	    _cairo_slope_init (&out_slope,
 			       &stroker->segments[j].p1,
 			       &stroker->segments[j].p2);
+	    box.p2 = box.p1 = stroker->segments[i].p2;
 
 	    if (is_horizontal) {
-		if (box.p1.x <= box.p2.x) {
-		    box.p1.x = box.p2.x;
-		    box.p2.x += half_line_width;
-		} else {
-		    box.p1.x = box.p2.x - half_line_width;
-		}
-		if (out_slope.dy >= 0)
-		    box.p1.y -= half_line_width;
-		if (out_slope.dy <= 0)
-		    box.p2.y += half_line_width;
+		if (forwards)
+		    box.p2.x += half_line_x;
+		else
+		    box.p1.x -= half_line_x;
+
+		if (out_slope.dy > 0)
+		    box.p1.y -= half_line_y;
+		else
+		    box.p2.y += half_line_y;
 	    } else {
-		if (box.p1.y <= box.p2.y) {
-		    box.p1.y = box.p2.y;
-		    box.p2.y += half_line_width;
-		} else {
-		    box.p1.y = box.p2.y - half_line_width;
-		}
-		if (out_slope.dx >= 0)
-		    box.p1.x -= half_line_width;
-		if (out_slope.dx <= 0)
-		    box.p2.x += half_line_width;
+		if (forwards)
+		    box.p2.y += half_line_y;
+		else
+		    box.p1.y -= half_line_y;
+
+		if (out_slope.dx > 0)
+		    box.p1.x -= half_line_x;
+		else
+		    box.p2.x += half_line_x;
 	    }
 
 	    status = _cairo_boxes_add (stroker->boxes, stroker->antialias, &box);
@@ -363,29 +365,29 @@ _cairo_rectilinear_stroker_emit_segments_dashed (cairo_rectilinear_stroker_t *st
 	if (is_horizontal) {
 	    if (line_cap == CAIRO_LINE_CAP_SQUARE) {
 		if (a->x <= b->x) {
-		    a->x -= half_line_width;
-		    b->x += half_line_width;
+		    a->x -= half_line_x;
+		    b->x += half_line_x;
 		} else {
-		    a->x += half_line_width;
-		    b->x -= half_line_width;
+		    a->x += half_line_x;
+		    b->x -= half_line_x;
 		}
 	    }
 
-	    a->y += half_line_width;
-	    b->y -= half_line_width;
+	    a->y += half_line_y;
+	    b->y -= half_line_y;
 	} else {
 	    if (line_cap == CAIRO_LINE_CAP_SQUARE) {
 		if (a->y <= b->y) {
-		    a->y -= half_line_width;
-		    b->y += half_line_width;
+		    a->y -= half_line_y;
+		    b->y += half_line_y;
 		} else {
-		    a->y += half_line_width;
-		    b->y -= half_line_width;
+		    a->y += half_line_y;
+		    b->y -= half_line_y;
 		}
 	    }
 
-	    a->x += half_line_width;
-	    b->x -= half_line_width;
+	    a->x += half_line_x;
+	    b->x -= half_line_x;
 	}
 
 	if (a->x == b->x && a->y == b->y)
@@ -455,8 +457,7 @@ _cairo_rectilinear_stroker_line_to (void		*closure,
 	return CAIRO_STATUS_SUCCESS;
 
     status = _cairo_rectilinear_stroker_add_segment (stroker, a, b,
-						     a->y == b->y,
-						     TRUE);
+						     (a->y == b->y) | JOIN);
 
     stroker->current_point = *b;
     stroker->open_sub_path = TRUE;
@@ -472,12 +473,12 @@ _cairo_rectilinear_stroker_line_to_dashed (void		*closure,
     const cairo_point_t *a = &stroker->current_point;
     const cairo_point_t *b = point;
     cairo_bool_t fully_in_bounds;
-    double sign, remain;
+    double sf, sign, remain;
     cairo_fixed_t mag;
     cairo_status_t status;
     cairo_line_t segment;
     cairo_bool_t dash_on = FALSE;
-    cairo_bool_t is_horizontal;
+    unsigned is_horizontal;
 
     /* We don't draw anything for degenerate paths. */
     if (a->x == b->x && a->y == b->y)
@@ -495,15 +496,19 @@ _cairo_rectilinear_stroker_line_to_dashed (void		*closure,
     }
 
     is_horizontal = a->y == b->y;
-    if (is_horizontal)
+    if (is_horizontal) {
 	mag = b->x - a->x;
-    else
+	sf = fabs (stroker->ctm->xx);
+    } else {
 	mag = b->y - a->y;
+	sf = fabs (stroker->ctm->yy);
+    }
     if (mag < 0) {
 	remain = _cairo_fixed_to_double (-mag);
 	sign = 1.;
     } else {
 	remain = _cairo_fixed_to_double (mag);
+	is_horizontal |= FORWARDS;
 	sign = -1.;
     }
 
@@ -511,11 +516,11 @@ _cairo_rectilinear_stroker_line_to_dashed (void		*closure,
     while (remain > 0.) {
 	double step_length;
 
-	step_length = MIN (stroker->dash.dash_remain, remain);
+	step_length = MIN (sf * stroker->dash.dash_remain, remain);
 	remain -= step_length;
 
 	mag = _cairo_fixed_from_double (sign*remain);
-	if (is_horizontal)
+	if (is_horizontal & 0x1)
 	    segment.p2.x = b->x + mag;
 	else
 	    segment.p2.y = b->y + mag;
@@ -527,8 +532,7 @@ _cairo_rectilinear_stroker_line_to_dashed (void		*closure,
 	    status = _cairo_rectilinear_stroker_add_segment (stroker,
 							     &segment.p1,
 							     &segment.p2,
-							     is_horizontal,
-							     remain <= 0.);
+							     is_horizontal | (remain <= 0.) << 2);
 	    if (unlikely (status))
 		return status;
 
@@ -539,7 +543,7 @@ _cairo_rectilinear_stroker_line_to_dashed (void		*closure,
 	    dash_on = FALSE;
 	}
 
-	_cairo_stroker_dash_step (&stroker->dash, step_length);
+	_cairo_stroker_dash_step (&stroker->dash, step_length / sf);
 	segment.p1 = segment.p2;
     }
 
@@ -555,8 +559,7 @@ _cairo_rectilinear_stroker_line_to_dashed (void		*closure,
 	status = _cairo_rectilinear_stroker_add_segment (stroker,
 							 &segment.p1,
 							 &segment.p1,
-							 is_horizontal,
-							 TRUE);
+							 is_horizontal | JOIN);
 	if (unlikely (status))
 	    return status;
     }
@@ -622,40 +625,40 @@ _cairo_path_fixed_stroke_rectilinear_to_boxes (const cairo_path_fixed_t	*path,
     if (! rectilinear_stroker.dash.dashed &&
 	_cairo_path_fixed_is_stroke_box (path, &box) &&
 	/* if the segments overlap we need to feed them into the tessellator */
-	box.p2.x - box.p1.x > 2* rectilinear_stroker.half_line_width &&
-	box.p2.y - box.p1.y > 2* rectilinear_stroker.half_line_width)
+	box.p2.x - box.p1.x > 2* rectilinear_stroker.half_line_x &&
+	box.p2.y - box.p1.y > 2* rectilinear_stroker.half_line_y)
     {
 	cairo_box_t b;
 
 	/* top */
-	b.p1.x = box.p1.x - rectilinear_stroker.half_line_width;
-	b.p2.x = box.p2.x + rectilinear_stroker.half_line_width;
-	b.p1.y = box.p1.y - rectilinear_stroker.half_line_width;
-	b.p2.y = box.p1.y + rectilinear_stroker.half_line_width;
+	b.p1.x = box.p1.x - rectilinear_stroker.half_line_x;
+	b.p2.x = box.p2.x + rectilinear_stroker.half_line_x;
+	b.p1.y = box.p1.y - rectilinear_stroker.half_line_y;
+	b.p2.y = box.p1.y + rectilinear_stroker.half_line_y;
 	status = _cairo_boxes_add (boxes, antialias, &b);
 	assert (status == CAIRO_INT_STATUS_SUCCESS);
 
 	/* left  (excluding top/bottom) */
-	b.p1.x = box.p1.x - rectilinear_stroker.half_line_width;
-	b.p2.x = box.p1.x + rectilinear_stroker.half_line_width;
-	b.p1.y = box.p1.y + rectilinear_stroker.half_line_width;
-	b.p2.y = box.p2.y - rectilinear_stroker.half_line_width;
+	b.p1.x = box.p1.x - rectilinear_stroker.half_line_x;
+	b.p2.x = box.p1.x + rectilinear_stroker.half_line_x;
+	b.p1.y = box.p1.y + rectilinear_stroker.half_line_y;
+	b.p2.y = box.p2.y - rectilinear_stroker.half_line_y;
 	status = _cairo_boxes_add (boxes, antialias, &b);
 	assert (status == CAIRO_INT_STATUS_SUCCESS);
 
 	/* right  (excluding top/bottom) */
-	b.p1.x = box.p2.x - rectilinear_stroker.half_line_width;
-	b.p2.x = box.p2.x + rectilinear_stroker.half_line_width;
-	b.p1.y = box.p1.y + rectilinear_stroker.half_line_width;
-	b.p2.y = box.p2.y - rectilinear_stroker.half_line_width;
+	b.p1.x = box.p2.x - rectilinear_stroker.half_line_x;
+	b.p2.x = box.p2.x + rectilinear_stroker.half_line_x;
+	b.p1.y = box.p1.y + rectilinear_stroker.half_line_y;
+	b.p2.y = box.p2.y - rectilinear_stroker.half_line_y;
 	status = _cairo_boxes_add (boxes, antialias, &b);
 	assert (status == CAIRO_INT_STATUS_SUCCESS);
 
 	/* bottom */
-	b.p1.x = box.p1.x - rectilinear_stroker.half_line_width;
-	b.p2.x = box.p2.x + rectilinear_stroker.half_line_width;
-	b.p1.y = box.p2.y - rectilinear_stroker.half_line_width;
-	b.p2.y = box.p2.y + rectilinear_stroker.half_line_width;
+	b.p1.x = box.p1.x - rectilinear_stroker.half_line_x;
+	b.p2.x = box.p2.x + rectilinear_stroker.half_line_x;
+	b.p1.y = box.p2.y - rectilinear_stroker.half_line_y;
+	b.p2.y = box.p2.y + rectilinear_stroker.half_line_y;
 	status = _cairo_boxes_add (boxes, antialias, &b);
 	assert (status == CAIRO_INT_STATUS_SUCCESS);
 

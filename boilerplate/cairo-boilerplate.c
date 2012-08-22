@@ -132,7 +132,6 @@ _cairo_boilerplate_image_create_surface (const char		   *name,
 					 double 		    max_width,
 					 double 		    max_height,
 					 cairo_boilerplate_mode_t   mode,
-					 int			    id,
 					 void			  **closure)
 {
     cairo_format_t format;
@@ -188,7 +187,6 @@ _cairo_boilerplate_image16_create_surface (const char		     *name,
 					   double		      max_width,
 					   double		      max_height,
 					   cairo_boilerplate_mode_t   mode,
-					   int			      id,
 					   void			    **closure)
 {
     *closure = NULL;
@@ -243,7 +241,6 @@ _cairo_boilerplate_recording_create_surface (const char 	       *name,
 					     double			max_width,
 					     double			max_height,
 					     cairo_boilerplate_mode_t	mode,
-					     int			id,
 					     void		      **closure)
 {
     cairo_rectangle_t extents;
@@ -678,8 +675,6 @@ cairo_boilerplate_get_targets (int	    *pnum_targets,
 const cairo_boilerplate_target_t *
 cairo_boilerplate_get_image_target (cairo_content_t content)
 {
-    struct cairo_boilerplate_target_list *list;
-
     if (cairo_boilerplate_targets == NULL)
 	_cairo_boilerplate_register_all ();
 
@@ -791,19 +786,27 @@ any2ppm_daemon_exists (void)
 FILE *
 cairo_boilerplate_open_any2ppm (const char   *filename,
 				int	      page,
-				unsigned int  flags)
+				unsigned int  flags,
+				int        (**close_cb) (FILE *))
 {
     char command[4096];
+    const char *any2ppm;
 #if HAS_DAEMON
     int sk;
     struct sockaddr_un addr;
     int len;
+#endif
 
+    any2ppm = getenv ("ANY2PPM");
+    if (any2ppm == NULL)
+	any2ppm = "./any2ppm";
+
+#if HAS_DAEMON
     if (flags & CAIRO_BOILERPLATE_OPEN_NO_DAEMON)
 	goto POPEN;
 
     if (! any2ppm_daemon_exists ()) {
-	if (system ("./any2ppm") != 0)
+	if (system (any2ppm) != 0)
 	    goto POPEN;
     }
 
@@ -826,11 +829,14 @@ cairo_boilerplate_open_any2ppm (const char   *filename,
 	goto POPEN;
     }
 
+    *close_cb = fclose;
     return fdopen (sk, "r");
 
 POPEN:
 #endif
-    sprintf (command, "./any2ppm %s %d", filename, page);
+
+    *close_cb = pclose;
+    sprintf (command, "%s %s %d", any2ppm, filename, page);
     return popen (command, "r");
 }
 
@@ -923,10 +929,11 @@ cairo_boilerplate_convert_to_image (const char *filename,
     FILE *file;
     unsigned int flags = 0;
     cairo_surface_t *image;
+    int (*close_cb) (FILE *);
     int ret;
 
   RETRY:
-    file = cairo_boilerplate_open_any2ppm (filename, page, flags);
+    file = cairo_boilerplate_open_any2ppm (filename, page, flags, &close_cb);
     if (file == NULL) {
 	switch (errno) {
 	case ENOMEM:
@@ -937,7 +944,7 @@ cairo_boilerplate_convert_to_image (const char *filename,
     }
 
     image = cairo_boilerplate_image_surface_create_from_ppm_stream (file);
-    ret = pclose (file);
+    ret = close_cb (file);
     /* check for fatal errors from the interpreter */
     if (ret) { /* any2pmm should never die... */
 	cairo_surface_destroy (image);

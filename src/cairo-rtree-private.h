@@ -42,7 +42,7 @@
 #include "cairo-types-private.h"
 
 #include "cairo-freelist-private.h"
-#include "cairo-list-private.h"
+#include "cairo-list-inline.h"
 
 enum {
     CAIRO_RTREE_NODE_AVAILABLE,
@@ -52,7 +52,6 @@ enum {
 
 typedef struct _cairo_rtree_node {
     struct _cairo_rtree_node *children[4], *parent;
-    void **owner;
     cairo_list_t link;
     uint16_t pinned;
     uint16_t state;
@@ -66,6 +65,7 @@ typedef struct _cairo_rtree {
     cairo_list_t pinned;
     cairo_list_t available;
     cairo_list_t evictable;
+    void (*destroy) (cairo_rtree_node_t *);
     cairo_freepool_t node_freepool;
 } cairo_rtree_t;
 
@@ -98,7 +98,8 @@ _cairo_rtree_init (cairo_rtree_t	*rtree,
 	           int			 width,
 		   int			 height,
 		   int			 min_size,
-		   int			 node_size);
+		   int			 node_size,
+		   void (*destroy)(cairo_rtree_node_t *));
 
 cairo_private cairo_int_status_t
 _cairo_rtree_insert (cairo_rtree_t	     *rtree,
@@ -112,9 +113,15 @@ _cairo_rtree_evict_random (cairo_rtree_t	 *rtree,
 		           int			  height,
 		           cairo_rtree_node_t	**out);
 
+cairo_private void
+_cairo_rtree_foreach (cairo_rtree_t *rtree,
+		      void (*func)(cairo_rtree_node_t *, void *data),
+		      void *data);
+
 static inline void *
 _cairo_rtree_pin (cairo_rtree_t *rtree, cairo_rtree_node_t *node)
 {
+    assert (node->state == CAIRO_RTREE_NODE_OCCUPIED);
     if (! node->pinned) {
 	cairo_list_move (&node->link, &rtree->pinned);
 	node->pinned = 1;

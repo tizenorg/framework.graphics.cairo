@@ -40,6 +40,7 @@
  */
 
 #include "cairoint.h"
+#include "cairo-clip-inline.h"
 #include "cairo-clip-private.h"
 #include "cairo-error-private.h"
 #include "cairo-freed-pool-private.h"
@@ -74,7 +75,7 @@ _cairo_clip_path_create (cairo_clip_t *clip)
     return clip_path;
 }
 
-static cairo_clip_path_t *
+cairo_clip_path_t *
 _cairo_clip_path_reference (cairo_clip_path_t *clip_path)
 {
     assert (CAIRO_REFERENCE_COUNT_HAS_REFERENCE (&clip_path->ref_count));
@@ -169,6 +170,24 @@ _cairo_clip_copy (const cairo_clip_t *clip)
     copy->extents = clip->extents;
     copy->region = cairo_region_reference (clip->region);
     copy->is_region = clip->is_region;
+
+    return copy;
+}
+
+cairo_clip_t *
+_cairo_clip_copy_path (const cairo_clip_t *clip)
+{
+    cairo_clip_t *copy;
+
+    if (clip == NULL || _cairo_clip_is_all_clipped (clip))
+	return (cairo_clip_t *) clip;
+
+    assert (clip->num_boxes);
+
+    copy = _cairo_clip_create ();
+    copy->extents = clip->extents;
+    if (clip->path)
+	copy->path = _cairo_clip_path_reference (clip->path);
 
     return copy;
 }

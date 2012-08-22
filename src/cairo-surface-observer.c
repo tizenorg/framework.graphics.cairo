@@ -36,16 +36,18 @@
 #include "cairoint.h"
 
 #include "cairo-surface-observer-private.h"
+#include "cairo-surface-observer-inline.h"
 
 #include "cairo-array-private.h"
-#include "cairo-combsort-private.h"
+#include "cairo-combsort-inline.h"
 #include "cairo-composite-rectangles-private.h"
 #include "cairo-error-private.h"
 #include "cairo-image-surface-private.h"
+#include "cairo-list-inline.h"
 #include "cairo-pattern-private.h"
 #include "cairo-output-stream-private.h"
 #include "cairo-recording-surface-private.h"
-#include "cairo-surface-subsurface-private.h"
+#include "cairo-surface-subsurface-inline.h"
 #include "cairo-reference-count-private.h"
 
 #if CAIRO_HAS_SCRIPT_SURFACE
@@ -184,6 +186,9 @@ classify_pattern (const cairo_pattern_t *pattern,
     case CAIRO_PATTERN_TYPE_MESH:
 	classify = 6;
 	break;
+    case CAIRO_PATTERN_TYPE_RASTER_SOURCE:
+	classify = 7;
+	break;
     }
     return classify;
 }
@@ -283,7 +288,11 @@ static void
 _cairo_device_observer_lock (void *_device)
 {
     cairo_device_observer_t *device = (cairo_device_observer_t *) _device;
-    cairo_device_acquire (device->target);
+    cairo_status_t ignored;
+
+    /* cairo_device_acquire() can fail for nil and finished
+     * devices. We don't care about observing them. */
+    ignored = cairo_device_acquire (device->target);
 }
 
 static void
@@ -1273,6 +1282,14 @@ _cairo_surface_observer_get_font_options (void *abstract_surface,
 	surface->target->backend->get_font_options (surface->target, options);
 }
 
+static cairo_surface_t *
+_cairo_surface_observer_source (void                    *abstract_surface,
+				cairo_rectangle_int_t	*extents)
+{
+    cairo_surface_observer_t *surface = abstract_surface;
+    return _cairo_surface_get_source (surface->target, extents);
+}
+
 static cairo_status_t
 _cairo_surface_observer_acquire_source_image (void                    *abstract_surface,
 						cairo_image_surface_t  **image_out,
@@ -1336,6 +1353,7 @@ static const cairo_surface_backend_t _cairo_surface_observer_backend = {
     _cairo_surface_observer_map_to_image,
     _cairo_surface_observer_unmap_image,
 
+    _cairo_surface_observer_source,
     _cairo_surface_observer_acquire_source_image,
     _cairo_surface_observer_release_source_image,
     _cairo_surface_observer_snapshot,
@@ -1687,7 +1705,8 @@ static const char *pattern_names[] = {
     "solid",
     "linear",
     "radial",
-    "mesh"
+    "mesh",
+    "raster"
 };
 static void
 print_pattern (cairo_output_stream_t *stream,
@@ -1944,7 +1963,7 @@ _cairo_observation_print (cairo_output_stream_t *stream,
     cairo_device_destroy (script);
 }
 
-void
+cairo_status_t
 cairo_surface_observer_print (cairo_surface_t *abstract_surface,
 			      cairo_write_func_t write_func,
 			      void *closure)
@@ -1952,17 +1971,17 @@ cairo_surface_observer_print (cairo_surface_t *abstract_surface,
     cairo_output_stream_t *stream;
     cairo_surface_observer_t *surface;
 
-    if (unlikely (CAIRO_REFERENCE_COUNT_IS_INVALID (&abstract_surface->ref_count)))
-	return;
+    if (unlikely (abstract_surface->status))
+	return abstract_surface->status;
 
-    if (! _cairo_surface_is_observer (abstract_surface))
-	return;
+    if (unlikely (! _cairo_surface_is_observer (abstract_surface)))
+	return _cairo_error (CAIRO_STATUS_SURFACE_TYPE_MISMATCH);
 
     surface = (cairo_surface_observer_t *) abstract_surface;
 
     stream = _cairo_output_stream_create (write_func, NULL, closure);
     _cairo_observation_print (stream, &surface->log);
-    _cairo_output_stream_destroy (stream);
+    return _cairo_output_stream_destroy (stream);
 }
 
 double
@@ -1980,7 +1999,7 @@ cairo_surface_observer_elapsed (cairo_surface_t *abstract_surface)
     return _cairo_time_to_ns (_cairo_observation_total_elapsed (&surface->log));
 }
 
-void
+cairo_status_t
 cairo_device_observer_print (cairo_device_t *abstract_device,
 			     cairo_write_func_t write_func,
 			     void *closure)
@@ -1988,17 +2007,17 @@ cairo_device_observer_print (cairo_device_t *abstract_device,
     cairo_output_stream_t *stream;
     cairo_device_observer_t *device;
 
-    if (unlikely (CAIRO_REFERENCE_COUNT_IS_INVALID (&abstract_device->ref_count)))
-	return;
+    if (unlikely (abstract_device->status))
+	return abstract_device->status;
 
-    if (! _cairo_device_is_observer (abstract_device))
-	return;
+    if (unlikely (! _cairo_device_is_observer (abstract_device)))
+	return _cairo_error (CAIRO_STATUS_DEVICE_TYPE_MISMATCH);
 
     device = (cairo_device_observer_t *) abstract_device;
 
     stream = _cairo_output_stream_create (write_func, NULL, closure);
     _cairo_observation_print (stream, &device->log);
-    _cairo_output_stream_destroy (stream);
+    return _cairo_output_stream_destroy (stream);
 }
 
 double

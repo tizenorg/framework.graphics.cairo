@@ -62,7 +62,6 @@ _cairo_boilerplate_svg_create_surface (const char		 *name,
 				       double			  max_width,
 				       double			  max_height,
 				       cairo_boilerplate_mode_t   mode,
-				       int			  id,
 				       void			**closure)
 {
     svg_target_closure_t *ptc;
@@ -117,7 +116,6 @@ _cairo_boilerplate_svg11_create_surface (const char		   *name,
 					 double 		    max_width,
 					 double 		    max_height,
 					 cairo_boilerplate_mode_t   mode,
-					 int			    id,
 					 void			  **closure)
 {
     /* current default, but be explicit in case the default changes */
@@ -125,7 +123,7 @@ _cairo_boilerplate_svg11_create_surface (const char		   *name,
 						  CAIRO_SVG_VERSION_1_1,
 						  width, height,
 						  max_width, max_height,
-						  mode, id,
+						  mode,
 						  closure);
 }
 
@@ -137,14 +135,13 @@ _cairo_boilerplate_svg12_create_surface (const char		   *name,
 					 double 		    max_width,
 					 double 		    max_height,
 					 cairo_boilerplate_mode_t   mode,
-					 int			    id,
 					 void			  **closure)
 {
     return _cairo_boilerplate_svg_create_surface (name, content,
 						  CAIRO_SVG_VERSION_1_2,
 						  width, height,
 						  max_width, max_height,
-						  mode, id,
+						  mode,
 						  closure);
 }
 
@@ -286,7 +283,7 @@ static const cairo_boilerplate_target_t targets[] = {
      * tests. XXX: I'd still like to chase these down at some point.
      * For now just set the svg error tolerance to 1. */
     {
-	"svg11", "svg", NULL, NULL,
+	"svg11", "svg", ".svg", NULL,
 	CAIRO_SURFACE_TYPE_SVG, CAIRO_CONTENT_COLOR_ALPHA, 1,
 	"cairo_svg_surface_create",
 	_cairo_boilerplate_svg11_create_surface,
@@ -299,7 +296,7 @@ static const cairo_boilerplate_target_t targets[] = {
 	NULL, NULL, FALSE, TRUE, TRUE
     },
     {
-	"svg11", "svg", NULL, NULL,
+	"svg11", "svg", ".svg", NULL,
 	CAIRO_SURFACE_TYPE_RECORDING, CAIRO_CONTENT_COLOR, 1,
 	"cairo_svg_surface_create",
 	_cairo_boilerplate_svg11_create_surface,
@@ -312,7 +309,7 @@ static const cairo_boilerplate_target_t targets[] = {
 	NULL, NULL, FALSE, TRUE, TRUE
     },
     {
-	"svg12", "svg", NULL, NULL,
+	"svg12", "svg", ".svg", NULL,
 	CAIRO_SURFACE_TYPE_SVG, CAIRO_CONTENT_COLOR_ALPHA, 1,
 	"cairo_svg_surface_create",
 	_cairo_boilerplate_svg12_create_surface,
@@ -325,7 +322,7 @@ static const cairo_boilerplate_target_t targets[] = {
 	NULL, NULL, FALSE, TRUE, TRUE
     },
     {
-	"svg12", "svg", NULL, NULL,
+	"svg12", "svg", ".svg", NULL,
 	CAIRO_SURFACE_TYPE_RECORDING, CAIRO_CONTENT_COLOR, 1,
 	"cairo_svg_surface_create",
 	_cairo_boilerplate_svg12_create_surface,

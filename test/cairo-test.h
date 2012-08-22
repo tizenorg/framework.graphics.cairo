@@ -153,7 +153,6 @@ typedef cairo_test_status_t
 (cairo_test_draw_function_t) (cairo_t *cr, int width, int height);
 
 struct _cairo_test {
-    struct _cairo_test *next;
     const char *name;
     const char *description;
     const char *keywords;
@@ -194,7 +193,7 @@ struct _cairo_test {
 void _register_##name (void); \
 void _register_##name (void) { \
     static cairo_test_t test = { \
-	NULL, #name, description, \
+	#name, description, \
 	keywords, requirements, \
 	width, height, \
 	preamble, draw \
@@ -237,8 +236,6 @@ struct _cairo_test_context {
     int last_fault_count;
 
     int timeout;
-
-    int thread;
 };
 
 /* Retrieve the test context from the cairo_t, used for logging, paths etc */
@@ -253,10 +250,6 @@ cairo_test_log (const cairo_test_context_t *ctx,
 void
 cairo_test_logv (const cairo_test_context_t *ctx,
 	        const char *fmt, va_list ap) CAIRO_BOILERPLATE_PRINTF_FORMAT(2, 0);
-
-void
-cairo_test_log_path (const cairo_test_context_t *ctx,
-		     const cairo_path_t *path);
 
 /* Helper functions that take care of finding source images even when
  * building in a non-srcdir manner, (i.e. the tests will be run in a

@@ -31,8 +31,8 @@
  * The Initial Developer of the Original Code is Eric Anholt.
  */
 
-/**
- * @file cairo-gl.h
+/*
+ * cairo-gl.h:
  *
  * The cairo-gl backend provides an implementation of possibly
  * hardware-accelerated cairo rendering by targeting the OpenGL API.
@@ -43,7 +43,7 @@
  *
  * Cairo-gl allows interoperability with other GL rendering through GL
  * context sharing.  Cairo-gl surfaces are created in reference to a
- * #cairo_device_t, which represents an GL context created by the user.
+ * #cairo_device_t, which represents a GL context created by the user.
  * When that GL context is created with its sharePtr set to another
  * context (or vice versa), its objects (textures backing cairo-gl
  * surfaces) can be accessed in the other OpenGL context.  This allows
@@ -55,7 +55,7 @@
  * call which interacts with a cairo-gl surface or the cairo-gl
  * device.  As a result, the user must make their own context current
  * between any cairo calls and their own OpenGL rendering.
- */
+ **/
 
 #ifndef CAIRO_GL_H
 #define CAIRO_GL_H
@@ -87,6 +87,14 @@ cairo_gl_surface_get_height (cairo_surface_t *abstract_surface);
 
 cairo_public void
 cairo_gl_surface_swapbuffers (cairo_surface_t *surface);
+
+cairo_public void
+cairo_gl_device_set_thread_aware (cairo_device_t	*device,
+				  cairo_bool_t		 thread_aware);
+
+cairo_public cairo_status_t
+cairo_gl_surface_set_binding_texture (cairo_surface_t *abstract_surface,
+				      unsigned int    texture);
 
 #if CAIRO_HAS_GLX_FUNCTIONS
 #include <GL/glx.h>

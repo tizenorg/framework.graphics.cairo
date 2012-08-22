@@ -256,18 +256,17 @@ static void
 usage (const char *argv0)
 {
     fprintf (stderr,
-"Usage: %s [-l] [-r] [-v] [-i iterations] [test-names ... | traces ...]\n"
-"       %s -l\n"
+"Usage: %s [-l] [-i iterations] [-x exclude-file] [test-names ... | traces ...]\n"
 "\n"
-"Run the cairo performance test suite over the given tests (all by default)\n"
+"Run the cairo trace analysis suite over the given tests (all by default)\n"
 "The command-line arguments are interpreted as follows:\n"
 "\n"
-"  -v	verbose\n"
-"  -x   exclude; specify a file to read a list of traces to exclude\n"
+"  -i	iterations; specify the number of iterations per test case\n"
 "  -l	list only; just list selected test case names without executing\n"
+"  -x	exclude; specify a file to read a list of traces to exclude\n"
 "\n"
 "If test names are given they are used as sub-string matches so a command\n"
-"such as \"cairo-perf-trace firefox\" can be used to run all firefox traces.\n"
+"such as \"%s firefox\" can be used to run all firefox traces.\n"
 "Alternatively, you can specify a list of filenames to execute.\n",
 	     argv0, argv0);
 }
@@ -330,7 +329,7 @@ parse_options (cairo_perf_t *perf,
     perf->num_exclude_names = 0;
 
     while (1) {
-	c = _cairo_getopt (argc, argv, "i:x:lrvc");
+	c = _cairo_getopt (argc, argv, "i:lx:");
 	if (c == -1)
 	    break;
 
@@ -419,7 +418,6 @@ cairo_perf_trace (cairo_perf_t			   *perf,
 				   1, 1,
 				   1, 1,
 				   CAIRO_BOILERPLATE_MODE_PERF,
-				   0,
 				   &args.closure);
     args.surface =
 	    cairo_surface_create_observer (real,

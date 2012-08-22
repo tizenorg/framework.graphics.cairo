@@ -169,7 +169,7 @@ cairo_perf_run (cairo_perf_t	   *perf,
 		cairo_count_func_t  count_func)
 {
     static cairo_bool_t first_run = TRUE;
-    unsigned int i, similar, has_similar;
+    unsigned int i, similar, similar_iters;
     cairo_time_t *times;
     cairo_stats_t stats = {0.0, 0.0};
     int low_std_dev_count;
@@ -217,8 +217,12 @@ cairo_perf_run (cairo_perf_t	   *perf,
 	free (filename);
     }
 
-    has_similar = cairo_perf_has_similar (perf);
-    for (similar = 0; similar <= has_similar; similar++) {
+    if (cairo_perf_has_similar (perf))
+	similar_iters = 2;
+    else
+	similar_iters = 1;
+
+    for (similar = 0; similar < similar_iters; similar++) {
 	unsigned loops;
 
 	if (perf->summary) {
@@ -315,19 +319,19 @@ static void
 usage (const char *argv0)
 {
     fprintf (stderr,
-"Usage: %s [-l] [-r] [-v] [-i iterations] [test-names ...]\n"
-"       %s -l\n"
+"Usage: %s [-flrv] [-i iterations] [test-names ...]\n"
 "\n"
 "Run the cairo performance test suite over the given tests (all by default)\n"
 "The command-line arguments are interpreted as follows:\n"
 "\n"
-"  -r	raw; display each time measurement instead of summary statistics\n"
-"  -v	verbose; in raw mode also show the summaries\n"
+"  -f	fast; faster, less accurate\n"
 "  -i	iterations; specify the number of iterations per test case\n"
 "  -l	list only; just list selected test case names without executing\n"
+"  -r	raw; display each time measurement instead of summary statistics\n"
+"  -v	verbose; in raw mode also show the summaries\n"
 "\n"
 "If test names are given they are used as sub-string matches so a command\n"
-"such as \"cairo-perf text\" can be used to run all text test cases.\n",
+"such as \"%s text\" can be used to run all text test cases.\n",
 	     argv0, argv0);
 }
 
@@ -361,11 +365,16 @@ parse_options (cairo_perf_t *perf,
     perf->summary = stdout;
 
     while (1) {
-	c = _cairo_getopt (argc, argv, "i:lrvf");
+	c = _cairo_getopt (argc, argv, "fi:lrv");
 	if (c == -1)
 	    break;
 
 	switch (c) {
+	case 'f':
+	    perf->fast_and_sloppy = TRUE;
+	    if (ms == NULL)
+		perf->ms_per_iteration = CAIRO_PERF_ITERATION_MS_FAST;
+	    break;
 	case 'i':
 	    perf->exact_iterations = TRUE;
 	    perf->iterations = strtoul (optarg, &end, 10);
@@ -381,11 +390,6 @@ parse_options (cairo_perf_t *perf,
 	case 'r':
 	    perf->raw = TRUE;
 	    perf->summary = NULL;
-	    break;
-	case 'f':
-	    perf->fast_and_sloppy = TRUE;
-	    if (ms == NULL)
-		perf->ms_per_iteration = CAIRO_PERF_ITERATION_MS_FAST;
 	    break;
 	case 'v':
 	    verbose = 1;
@@ -508,7 +512,6 @@ main (int   argc,
 						    perf.size, perf.size,
 						    perf.size, perf.size,
 						    CAIRO_BOILERPLATE_MODE_PERF,
-						    0,
 						    &closure);
 		if (surface == NULL) {
 		    fprintf (stderr,

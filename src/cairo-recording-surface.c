@@ -74,19 +74,19 @@
  * improved by improving the implementation of snapshot for the
  * various objects. For example, it would be nice to have a
  * copy-on-write implementation for _cairo_surface_snapshot.
- */
+ **/
 
 #include "cairoint.h"
 
 #include "cairo-array-private.h"
 #include "cairo-analysis-surface-private.h"
 #include "cairo-clip-private.h"
-#include "cairo-combsort-private.h"
+#include "cairo-combsort-inline.h"
 #include "cairo-composite-rectangles-private.h"
 #include "cairo-default-context-private.h"
 #include "cairo-error-private.h"
 #include "cairo-image-surface-private.h"
-#include "cairo-recording-surface-private.h"
+#include "cairo-recording-surface-inline.h"
 #include "cairo-surface-wrapper-private.h"
 #include "cairo-traps-private.h"
 
@@ -105,7 +105,7 @@ static const cairo_surface_backend_t cairo_recording_surface_backend;
  * This macro was added for completeness in cairo 1.10.
  *
  * Since: 1.10
- */
+ **/
 
 /* Currently all recording surfaces do have a size which should be passed
  * in as the maximum size of any target surface against which the
@@ -535,6 +535,7 @@ static const cairo_surface_backend_t proxy_backend  = {
     NULL, /* map to image */
     NULL, /* unmap image */
 
+    _cairo_surface_default_source,
     proxy_acquire_source_image,
     proxy_release_source_image,
 };
@@ -676,6 +677,21 @@ _cairo_recording_surface_reset (cairo_recording_surface_t *surface)
     _cairo_array_init (&surface->commands, sizeof (cairo_command_t *));
 }
 
+static cairo_bool_t
+is_identity_recording_pattern (const cairo_pattern_t *pattern)
+{
+    cairo_surface_t *surface;
+
+    if (pattern->type != CAIRO_PATTERN_TYPE_SURFACE)
+	return FALSE;
+
+    if (!_cairo_matrix_is_identity(&pattern->matrix))
+	return FALSE;
+
+    surface = ((cairo_surface_pattern_t *)pattern)->surface;
+    return surface->backend->type == CAIRO_SURFACE_TYPE_RECORDING;
+}
+
 static cairo_int_status_t
 _cairo_recording_surface_paint (void			  *abstract_surface,
 				cairo_operator_t	   op,
@@ -687,6 +703,8 @@ _cairo_recording_surface_paint (void			  *abstract_surface,
     cairo_command_paint_t *command;
     cairo_composite_rectangles_t composite;
 
+    TRACE ((stderr, "%s: surface=%d\n", __FUNCTION__, surface->base.unique_id));
+
     if (op == CAIRO_OPERATOR_CLEAR && clip == NULL) {
 	if (surface->optimize_clears) {
 	    _cairo_recording_surface_reset (surface);
@@ -695,12 +713,15 @@ _cairo_recording_surface_paint (void			  *abstract_surface,
     }
 
     if (clip == NULL && surface->optimize_clears &&
-	source->type == CAIRO_PATTERN_TYPE_SOLID &&
 	(op == CAIRO_OPERATOR_SOURCE ||
 	 (op == CAIRO_OPERATOR_OVER &&
 	  (surface->base.is_clear || _cairo_pattern_is_opaque_solid (source)))))
     {
 	_cairo_recording_surface_reset (surface);
+	if (is_identity_recording_pattern (source)) {
+	    cairo_surface_t *src = ((cairo_surface_pattern_t *)source)->surface;
+	    return _cairo_recording_surface_replay (src, &surface->base);
+	}
     }
 
     status = _cairo_composite_rectangles_init_for_paint (&composite,
@@ -756,6 +777,8 @@ _cairo_recording_surface_mask (void			*abstract_surface,
     cairo_recording_surface_t *surface = abstract_surface;
     cairo_command_mask_t *command;
     cairo_composite_rectangles_t composite;
+
+    TRACE ((stderr, "%s: surface=%d\n", __FUNCTION__, surface->base.unique_id));
 
     status = _cairo_composite_rectangles_init_for_mask (&composite,
 							&surface->base,
@@ -821,6 +844,8 @@ _cairo_recording_surface_stroke (void			*abstract_surface,
     cairo_recording_surface_t *surface = abstract_surface;
     cairo_command_stroke_t *command;
     cairo_composite_rectangles_t composite;
+
+    TRACE ((stderr, "%s: surface=%d\n", __FUNCTION__, surface->base.unique_id));
 
     status = _cairo_composite_rectangles_init_for_stroke (&composite,
 							  &surface->base,
@@ -896,6 +921,8 @@ _cairo_recording_surface_fill (void			*abstract_surface,
     cairo_recording_surface_t *surface = abstract_surface;
     cairo_command_fill_t *command;
     cairo_composite_rectangles_t composite;
+
+    TRACE ((stderr, "%s: surface=%d\n", __FUNCTION__, surface->base.unique_id));
 
     status = _cairo_composite_rectangles_init_for_fill (&composite,
 							&surface->base,
@@ -973,6 +1000,8 @@ _cairo_recording_surface_show_text_glyphs (void				*abstract_surface,
     cairo_recording_surface_t *surface = abstract_surface;
     cairo_command_show_text_glyphs_t *command;
     cairo_composite_rectangles_t composite;
+
+    TRACE ((stderr, "%s: surface=%d\n", __FUNCTION__, surface->base.unique_id));
 
     status = _cairo_composite_rectangles_init_for_glyphs (&composite,
 							  &surface->base,
@@ -1060,7 +1089,7 @@ CLEANUP_COMPOSITE:
 }
 
 /**
- * _cairo_recording_surface_snapshot
+ * _cairo_recording_surface_snapshot:
  * @surface: a #cairo_surface_t which must be a recording surface
  *
  * Make an immutable copy of @surface. It is an error to call a
@@ -1135,6 +1164,7 @@ static const cairo_surface_backend_t cairo_recording_surface_backend = {
     NULL, /* map to image */
     NULL, /* unmap image */
 
+    _cairo_surface_default_source,
     _cairo_recording_surface_acquire_source_image,
     _cairo_recording_surface_release_source_image,
     _cairo_recording_surface_snapshot,
@@ -1694,6 +1724,18 @@ _cairo_recording_surface_get_ink_bbox (cairo_recording_surface_t *surface,
     return _recording_surface_get_ink_bbox (surface, bbox, transform);
 }
 
+/**
+ * cairo_recording_surface_get_extents:
+ * @surface: a #cairo_recording_surface_t
+ * @extents: the #cairo_rectangle_t to be assigned the extents
+ *
+ * Get the extents of the recording-surface.
+ *
+ * Return value: %TRUE if the surface is bounded, of recording type, and
+ * not in an error state, otherwise %FALSE
+ *
+ * Since: 1.12
+ **/
 cairo_bool_t
 cairo_recording_surface_get_extents (cairo_surface_t *surface,
 				     cairo_rectangle_t *extents)

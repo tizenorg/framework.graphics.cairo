@@ -1,6 +1,6 @@
 #!/usr/bin/make -f
 
-DISTRIBUTION	= TIZEN
+DISTRIBUTION	= SLP
 
 # list of flavors we build; each gets a builddir, a configure pass (configure
 # args are defined below), a build pass, and an install pass
@@ -51,7 +51,7 @@ configure_flags += \
 --with-x \
 --x-includes=$(PREFIX)/include \
 --x-libraries=$(PREFIX)/lib \
---enable-static 
+--enable-static
 
 
 ifneq ($(DEB_BUILD_GNU_TYPE),$(DEB_HOST_GNU_TYPE))
@@ -61,12 +61,16 @@ endif
 ifeq (arm, $(findstring arm, $(DEB_HOST_GNU_TYPE)))
 CONFIGURE_OPTIONS += \
 --enable-svg=no 
+
+configure_flags += \
+--enable-egl=yes \
+--enable-glesv2=yes
 endif
 
 main_configure_flags += \
 $(configure_flags) 
 
-ifeq ($(DISTRIBUTION),TIZEN)
+ifeq ($(DISTRIBUTION),SLP)
 configure_flags += --enable-xcb
 endif
 

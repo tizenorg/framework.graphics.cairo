@@ -70,6 +70,10 @@ struct _cairo_surface_backend {
     (*unmap_image)		(void			*surface,
 				 cairo_image_surface_t	*image);
 
+    cairo_surface_t *
+    (*source)			(void                    *abstract_surface,
+				 cairo_rectangle_int_t  *extents);
+
     cairo_warn cairo_status_t
     (*acquire_source_image)	(void                    *abstract_surface,
 				 cairo_image_surface_t  **image_out,
@@ -192,7 +196,24 @@ struct _cairo_surface_backend {
 				 cairo_text_cluster_flags_t  cluster_flags,
 				 cairo_scaled_font_t	    *scaled_font,
 				 const cairo_clip_t               *clip);
+
+    const char **
+    (*get_supported_mime_types)	(void			    *surface);
 };
+
+cairo_private cairo_status_t
+_cairo_surface_default_acquire_source_image (void                    *surface,
+					     cairo_image_surface_t  **image_out,
+					     void                   **image_extra);
+
+cairo_private void
+_cairo_surface_default_release_source_image (void                   *surface,
+					     cairo_image_surface_t  *image,
+					     void                   *image_extra);
+
+cairo_private cairo_surface_t *
+_cairo_surface_default_source (void *surface,
+			       cairo_rectangle_int_t *extents);
 
 CAIRO_END_DECLS
 

@@ -274,13 +274,12 @@ _cairo_boilerplate_xlib_create_similar (cairo_surface_t		*other,
 
 static cairo_surface_t *
 _cairo_boilerplate_xlib_create_surface (const char		  *name,
-					cairo_content_t 	   content,
+					cairo_content_t		   content,
 					double			   width,
 					double			   height,
 					double			   max_width,
 					double			   max_height,
 					cairo_boilerplate_mode_t   mode,
-					int			   id,
 					void			 **closure)
 {
     xlib_target_closure_t *xtc;
@@ -316,6 +315,63 @@ _cairo_boilerplate_xlib_create_surface (const char		  *name,
 }
 
 static cairo_surface_t *
+_cairo_boilerplate_xlib_render_0_0_create_surface (const char		  *name,
+						   cairo_content_t		   content,
+						   double			   width,
+						   double			   height,
+						   double			   max_width,
+						   double			   max_height,
+						   cairo_boilerplate_mode_t   mode,
+						   void			 **closure)
+{
+    xlib_target_closure_t *xtc;
+    Display *dpy;
+    int screen;
+    Pixmap pixmap;
+    cairo_surface_t *surface, *dummy;
+
+    *closure = xtc = xcalloc (1, sizeof (xlib_target_closure_t));
+
+    width = ceil (width);
+    if (width < 1)
+	width = 1;
+
+    height = ceil (height);
+    if (height < 1)
+	height = 1;
+
+    xtc->dpy = dpy = XOpenDisplay (NULL);
+    if (xtc->dpy == NULL) {
+	free (xtc);
+	CAIRO_BOILERPLATE_DEBUG (("Failed to open display: %s\n", XDisplayName(0)));
+	return NULL;
+    }
+
+
+    screen = DefaultScreen (dpy);
+    pixmap = XCreatePixmap (dpy, DefaultRootWindow (dpy), 1, 1,
+			    DefaultDepth (dpy, screen));
+    dummy = cairo_xlib_surface_create (dpy, pixmap,
+				       DefaultVisual (dpy, screen),
+				       1, 1);
+    cairo_xlib_device_debug_cap_xrender_version (cairo_surface_get_device (dummy),
+						 0, 0);
+
+    if (mode == CAIRO_BOILERPLATE_MODE_TEST)
+	surface = _cairo_boilerplate_xlib_test_create_surface (dpy, content, width, height, xtc);
+    else /* mode == CAIRO_BOILERPLATE_MODE_PERF */
+	surface = _cairo_boilerplate_xlib_perf_create_surface (dpy, content, width, height, xtc);
+
+    cairo_surface_destroy (dummy);
+    XFreePixmap (dpy, pixmap);
+
+    if (surface == NULL || cairo_surface_status (surface))
+	_cairo_boilerplate_xlib_cleanup (xtc);
+
+    return surface;
+}
+
+static cairo_surface_t *
 _cairo_boilerplate_xlib_window_create_surface (const char		 *name,
 					       cairo_content_t		  content,
 					       double			  width,
@@ -323,13 +379,11 @@ _cairo_boilerplate_xlib_window_create_surface (const char		 *name,
 					       double			  max_width,
 					       double			  max_height,
 					       cairo_boilerplate_mode_t   mode,
-					       int			  id,
 					       void			**closure)
 {
     xlib_target_closure_t *xtc;
     Display *dpy;
-    Screen *scr;
-    int screen, x, y;
+    int screen;
     XSetWindowAttributes attr;
     cairo_surface_t *surface;
 
@@ -374,25 +428,9 @@ _cairo_boilerplate_xlib_window_create_surface (const char		 *name,
 	return NULL;
     }
 
-    /* tile the windows so threads do not overlap */
-    scr = XScreenOfDisplay (dpy, screen);
-    x = 10; y = 15;
-    if (id-- > 1) do {
-	x += max_width;
-	if (x + max_width > WidthOfScreen (scr)) {
-	    x = 10;
-	    y += max_height;
-	    if (y + max_height > HeightOfScreen (scr)) {
-		XCloseDisplay (dpy);
-		free (xtc);
-		return NULL;
-	    }
-	}
-    } while (--id);
-
     attr.override_redirect = True;
     xtc->drawable = XCreateWindow (dpy, DefaultRootWindow (dpy),
-				   x, y,
+				   0, 0,
 				   width, height, 0,
 				   DefaultDepth (dpy, screen),
 				   InputOutput,
@@ -410,49 +448,6 @@ _cairo_boilerplate_xlib_window_create_surface (const char		 *name,
     _cairo_boilerplate_xlib_setup_test_surface(surface);
 
     return surface;
-}
-
-cairo_status_t
-cairo_boilerplate_xlib_surface_disable_render (cairo_surface_t *abstract_surface)
-{
-#if 0
-    /* The following stunt doesn't work with xlib-xcb because it doesn't use
-     * cairo_xlib_surface_t for its surfaces. Sadly, there is no sane
-     * alternative, so we can't disable render with xlib-xcb.
-     * FIXME: Find an alternative. */
-#if !CAIRO_HAS_XLIB_XCB_FUNCTIONS
-    cairo_xlib_surface_t *surface = (cairo_xlib_surface_t*) abstract_surface;
-
-    if (cairo_surface_get_type (abstract_surface) != CAIRO_SURFACE_TYPE_XLIB)
-	return CAIRO_STATUS_SURFACE_TYPE_MISMATCH;
-
-    surface->render_major = surface->render_minor = -1;
-    surface->xrender_format = NULL;
-
-    /* The content type is forced by _xrender_format_to_content() during
-     * non-Render surface creation, so repeat the procedure here. */
-    surface->base.content = CAIRO_CONTENT_COLOR;
-
-    /* These flags are set based on known bugs and lack of RENDER support */
-#if CAIRO_XLIB_SURFACE_HAS_BUGGY_GRADIENTS
-    surface->buggy_gradients = TRUE;
-#endif
-#if CAIRO_XLIB_SURFACE_HAS_BUGGY_PAD_REFLECT
-    surface->buggy_pad_reflect = TRUE;
-#endif
-#if CAIRO_XLIB_SURFACE_HAS_BUGGY_REPEAT
-    surface->buggy_repeat = TRUE;
-#endif
-#endif
-#endif
-
-    return CAIRO_STATUS_SUCCESS;
-}
-#else
-cairo_status_t
-cairo_boilerplate_xlib_surface_disable_render (cairo_surface_t *abstract_surface)
-{
-    return CAIRO_STATUS_SUCCESS;
 }
 #endif
 
@@ -475,15 +470,13 @@ _cairo_boilerplate_xlib_fallback_create_surface (const char		   *name,
 						 double 		    max_width,
 						 double 		    max_height,
 						 cairo_boilerplate_mode_t   mode,
-						 int			    id,
 						 void			  **closure)
 {
     xlib_target_closure_t *xtc;
     Display *dpy;
-    Screen *scr;
-    int screen, x, y;
+    int screen;
     XSetWindowAttributes attr;
-    cairo_surface_t *surface;
+    cairo_surface_t *surface, *dummy;
 
     /* We're not yet bothering to support perf mode for the
      * xlib-fallback surface. */
@@ -526,25 +519,9 @@ _cairo_boilerplate_xlib_fallback_create_surface (const char		   *name,
 	return NULL;
     }
 
-    /* tile the windows so threads do not overlap */
-    scr = XScreenOfDisplay (dpy, screen);
-    x = y = 0;
-    if (id-- > 1) do {
-	x += max_width;
-	if (x + max_width > WidthOfScreen (scr)) {
-	    x = 0;
-	    y += max_height;
-	    if (y + max_height > HeightOfScreen (scr)) {
-		XCloseDisplay (dpy);
-		free (xtc);
-		return NULL;
-	    }
-	}
-    } while (--id);
-
     attr.override_redirect = True;
     xtc->drawable = XCreateWindow (dpy, DefaultRootWindow (dpy),
-				   x, y,
+				   0, 0,
 				   width, height, 0,
 				   DefaultDepth (dpy, screen),
 				   InputOutput,
@@ -553,13 +530,18 @@ _cairo_boilerplate_xlib_fallback_create_surface (const char		   *name,
     XMapWindow (dpy, xtc->drawable);
     xtc->drawable_is_pixmap = FALSE;
 
+    dummy = cairo_xlib_surface_create (dpy, xtc->drawable,
+				       DefaultVisual (dpy, screen),
+				       width, height);
+    cairo_xlib_device_debug_cap_xrender_version (cairo_surface_get_device (dummy),
+						 -1, -1);
+
     surface = cairo_xlib_surface_create (dpy, xtc->drawable,
 					 DefaultVisual (dpy, screen),
 					 width, height);
+    cairo_surface_destroy (dummy);
     if (cairo_surface_status (surface))
 	_cairo_boilerplate_xlib_cleanup (xtc);
-    else
-	cairo_boilerplate_xlib_surface_disable_render (surface);
 
     _cairo_boilerplate_xlib_setup_test_surface(surface);
 
@@ -613,12 +595,26 @@ static const cairo_boilerplate_target_t targets[] = {
         NULL,
 	FALSE, FALSE, FALSE
     },
+    {
+	"xlib-render-0_0", "mask", NULL, NULL,
+	CAIRO_SURFACE_TYPE_XLIB, CAIRO_CONTENT_COLOR, 1,
+	"cairo_xlib_surface_create",
+	_cairo_boilerplate_xlib_render_0_0_create_surface,
+	cairo_surface_create_similar,
+	NULL, NULL,
+	_cairo_boilerplate_get_image_surface,
+	cairo_surface_write_to_png,
+	_cairo_boilerplate_xlib_cleanup,
+	_cairo_boilerplate_xlib_synchronize,
+        NULL,
+	FALSE, FALSE, FALSE
+    },
 #endif
 #if CAIRO_HAS_XLIB_SURFACE
     /* This is a fallback surface which uses xlib fallbacks instead of
      * the Render extension. */
     {
-	"xlib-fallback", "xlib", NULL, NULL,
+	"xlib-fallback", "image", NULL, NULL,
 	CAIRO_SURFACE_TYPE_XLIB, CAIRO_CONTENT_COLOR, 1,
 	"cairo_xlib_surface_create",
 	_cairo_boilerplate_xlib_fallback_create_surface,

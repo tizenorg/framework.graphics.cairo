@@ -40,7 +40,7 @@
 
 #include "cairo-error-private.h"
 #include "cairo-freelist-private.h"
-#include "cairo-combsort-private.h"
+#include "cairo-combsort-inline.h"
 #include "cairo-traps-private.h"
 
 #define DEBUG_PRINT_STATE 0
@@ -570,6 +570,13 @@ _cairo_bo_sweep_line_compare_edges (cairo_bo_sweep_line_t	*sweep_line,
 
     /* compare the edges if not identical */
     if (! _line_equal (&a->edge.line, &b->edge.line)) {
+	if (MAX (a->edge.line.p1.x, a->edge.line.p2.x) <
+	    MIN (b->edge.line.p1.x, b->edge.line.p2.x))
+	    return -1;
+	else if (MIN (a->edge.line.p1.x, a->edge.line.p2.x) >
+		 MAX (b->edge.line.p1.x, b->edge.line.p2.x))
+	    return 1;
+
 	cmp = edges_compare_x_for_y (a, b, sweep_line->current_y);
 	if (cmp)
 	    return cmp;
@@ -1077,6 +1084,10 @@ _cairo_bo_event_queue_insert_if_intersect_below_current_y (cairo_bo_event_queue_
 							   cairo_bo_edge_t *right)
 {
     cairo_bo_point32_t intersection;
+
+    if (MAX (left->edge.line.p1.x, left->edge.line.p2.x) <=
+	MIN (right->edge.line.p1.x, right->edge.line.p2.x))
+	return CAIRO_STATUS_SUCCESS;
 
     if (_line_equal (&left->edge.line, &right->edge.line))
 	return CAIRO_STATUS_SUCCESS;

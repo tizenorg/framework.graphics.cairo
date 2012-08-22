@@ -39,6 +39,7 @@
 #include "cairo-skia.h"
 
 #include "cairo-surface-clipper-private.h"
+#include "cairo-image-surface-inline.h"
 
 #include <SkBitmap.h>
 #include <SkCanvas.h>
@@ -1151,7 +1152,7 @@ cairo_skia_surface_get_image (cairo_surface_t *surface)
     return &_get_image_surface (esurf)->base;
 }
 
-/***
+/*
 
 Todo:
 
@@ -1171,4 +1172,4 @@ Medium:
 Low:
 - implement EXTEND_NONE
 
-***/
+*/

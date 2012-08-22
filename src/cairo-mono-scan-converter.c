@@ -200,8 +200,8 @@ polygon_add_edge (struct polygon *polygon,
 	e->x = floored_muldivrem (ytop * CAIRO_FIXED_ONE + CAIRO_FIXED_FRAC_MASK/2 - edge->line.p1.y,
 				  dx, dy);
 	e->x.quo += edge->line.p1.x;
-	e->x.rem -= dy;
     }
+    e->x.rem -= dy;
 
     _polygon_insert_edge_into_its_y_bucket (polygon, e, ytop);
 }
@@ -337,11 +337,13 @@ row (struct mono_scan_converter *c, unsigned int mask)
 	int xend = I(edge->x.quo);
 
 	if (--edge->height_left) {
-	    edge->x.quo += edge->dxdy.quo;
-	    edge->x.rem += edge->dxdy.rem;
-	    if (edge->x.rem >= 0) {
-		++edge->x.quo;
-		edge->x.rem -= edge->dy;
+	    if (!edge->vertical) {
+		edge->x.quo += edge->dxdy.quo;
+		edge->x.rem += edge->dxdy.rem;
+		if (edge->x.rem >= 0) {
+		    ++edge->x.quo;
+		    edge->x.rem -= edge->dy;
+		}
 	    }
 
 	    if (edge->x.quo < prev_x) {
@@ -390,13 +392,15 @@ _mono_scan_converter_init(struct mono_scan_converter *c,
 			  int xmax, int ymax)
 {
     cairo_status_t status;
+    int max_num_spans;
 
     status = polygon_init (c->polygon, ymin, ymax);
     if  (unlikely (status))
 	return status;
 
-    if (xmax - xmin > ARRAY_LENGTH(c->spans_embedded)) {
-	c->spans = _cairo_malloc_ab (xmax - xmin,
+    max_num_spans = xmax - xmin + 1;
+    if (max_num_spans > ARRAY_LENGTH(c->spans_embedded)) {
+	c->spans = _cairo_malloc_ab (max_num_spans,
 				     sizeof (cairo_half_open_span_t));
 	if (unlikely (c->spans == NULL)) {
 	    polygon_fini (c->polygon);

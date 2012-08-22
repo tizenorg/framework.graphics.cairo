@@ -53,6 +53,8 @@ typedef struct _cairo_gl_dispatch_entry {
 				   offsetof(cairo_gl_dispatch_t, name) }
 #define DISPATCH_ENTRY_ARB_OES(name) { { "gl"#name, "gl"#name"ARB", "gl"#name"OES" }, \
 				       offsetof(cairo_gl_dispatch_t, name) }
+#define DISPATCH_ENTRY_EXT_EXT(name) { { "gl"#name, "gl"#name"EXT", "gl"#name"EXT" }, \
+				       offsetof(cairo_gl_dispatch_t, name) }
 #define DISPATCH_ENTRY_CUSTOM(name, name2) { { "gl"#name, "gl"#name2, "gl"#name }, \
 			                     offsetof(cairo_gl_dispatch_t, name)}
 #define DISPATCH_ENTRY_LAST { { NULL, NULL, NULL }, 0 }
@@ -109,6 +111,14 @@ cairo_private cairo_gl_dispatch_entry_t dispatch_fbo_entries[] = {
     DISPATCH_ENTRY_EXT (FramebufferTexture2D),
     DISPATCH_ENTRY_EXT (CheckFramebufferStatus),
     DISPATCH_ENTRY_EXT (DeleteFramebuffers),
+    DISPATCH_ENTRY_EXT (GenRenderbuffers),
+    DISPATCH_ENTRY_EXT (BindRenderbuffer),
+    DISPATCH_ENTRY_EXT (RenderbufferStorage),
+    DISPATCH_ENTRY_EXT (FramebufferRenderbuffer),
+    DISPATCH_ENTRY_EXT (DeleteRenderbuffers),
+    DISPATCH_ENTRY_EXT (BlitFramebuffer),
+    DISPATCH_ENTRY_EXT_EXT (RenderbufferStorageMultisample),
+    DISPATCH_ENTRY_EXT_EXT (FramebufferTexture2DMultisample),
     DISPATCH_ENTRY_LAST
 };
 
