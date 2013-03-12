@@ -1,0 +1,55 @@
+Source: cairo
+Section: libs
+Priority: optional
+Maintainer: Wonsik Jung <sidein@samsung.com>, Deokjin Kim <deokjin81.kim@samsung.com>, Seongwon Cho <seongwon1.cho@samsung.com>, Dongyeon Kim <dy5.kim@samsung.com>
+Build-Depends: debhelper (>= 5.0.22), autotools-dev, pkg-config (>= 0.19), libfontconfig1-dev, libfreetype6-dev (>= 2.1.10), libxrender-dev (>= 0.6.0), libx11-dev, libpng12-dev, libsm-dev, xutils-dev, libxt-dev, dpatch, libpixman-1-dev (>= 0.12.0), libxcb1-dev (>= 0.9.92), libxcb-render0-dev (>= 0.9.92), libxcb-render-util0-dev, libglib2.0-dev, libxcb-shm0-dev, opengl-es-dev
+Standards-Version: 3.8.2
+
+Package: libcairo2-dev
+Provides: libcairo-dev
+Conflicts: libcairo-dev, libcairo0.5.1-dev, libcairo0.6.0-dev, libcairo0.9.0-dev
+Replaces: libcairo0.5.1-dev, libcairo0.6.0-dev, libcairo0.9.0-dev
+Section: libdevel
+Architecture: any
+Depends: libcairo2 (= ${binary:Version}), libfontconfig1-dev, libfreetype6-dev (>= 2.1.10), libxrender-dev (>= 0.6.0), libpng12-dev, libsm-dev, libpixman-1-dev (>= 0.12.0), libxcb1-dev, libxcb-render0-dev, libxcb-render-util0-dev, libxcb-shm0-dev, opengl-es-dev
+Description: Development files for the Cairo 2D graphics library
+ Cairo is a multi-platform library providing anti-aliased
+ vector-based rendering for multiple target backends.
+ .
+ This package contains the development libraries, header files needed by
+ programs that want to compile with Cairo.
+
+Package: libcairo2
+Section: libs
+Architecture: any
+Depends: ${shlibs:Depends}, libpixman-1-0
+Provides: libcairo
+Conflicts: libcairo1
+Replaces: libcairo0.5.1, libcairo0.6.0, libcairo0.9.0, libcairo1
+Description: The Cairo 2D vector graphics library
+ Cairo is a multi-platform library providing anti-aliased
+ vector-based rendering for multiple target backends. Paths consist
+ of line segments and cubic splines and can be rendered at any width
+ with various join and cap styles. All colors may be specified with
+ optional translucence (opacity/alpha) and combined using the
+ extended Porter/Duff compositing algebra as found in the X Render
+ Extension.
+ .
+ Cairo exports a stateful rendering API similar in spirit to the path
+ construction, text, and painting operators of PostScript, (with the
+ significant addition of translucence in the imaging model). When
+ complete, the API is intended to support the complete imaging model of
+ PDF 1.4.
+ .
+ This package contains the shared libraries.
+
+Package: libcairo2-dbg
+Section: debug
+Priority: extra
+Architecture: any
+Depends: libcairo2 (= ${binary:Version})
+Description: The Cairo 2D vector graphics library (debugging symbols)
+ Debugging symbols for the Cairo 2D vector graphics library. This is
+ needed to debug programs linked against libcairo2.
+
+
