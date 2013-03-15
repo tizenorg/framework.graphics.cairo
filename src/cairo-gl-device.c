@@ -247,8 +247,7 @@ _cairo_gl_context_init (cairo_gl_context_t *ctx)
 	    return _cairo_error (CAIRO_STATUS_DEVICE_ERROR);
     } else {
 	ctx->tex_target = GL_TEXTURE_2D;
-	if (_cairo_gl_has_extension ("GL_OES_texture_npot") ||
-		_cairo_gl_has_extension ("GL_IMG_texture_npot"))
+	if (_cairo_gl_has_extension ("GL_OES_texture_npot"))
 	    ctx->has_npot_repeat = TRUE;
 	else
 	    ctx->has_npot_repeat = FALSE;
@@ -577,8 +576,12 @@ _cairo_gl_ensure_msaa_depth_stencil_buffer (cairo_gl_context_t *ctx,
 
     surface->msaa_depth_stencil = ctx->shared_msaa_depth_stencil;
 
-    if (dispatch->CheckFramebufferStatus (GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+    if (dispatch->CheckFramebufferStatus (GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+	dispatch->DeleteRenderbuffers (1, &surface->msaa_depth_stencil);
+	surface->msaa_depth_stencil = 0;
 	return FALSE;
+    }
+
     return TRUE;
 }
 
@@ -626,8 +629,12 @@ _cairo_gl_ensure_depth_stencil_buffer (cairo_gl_context_t *ctx,
 				       GL_RENDERBUFFER, ctx->shared_depth_stencil);
     surface->depth_stencil = ctx->shared_depth_stencil;
 
-    if (dispatch->CheckFramebufferStatus (GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+    if (dispatch->CheckFramebufferStatus (GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+	dispatch->DeleteRenderbuffers (1, &surface->depth_stencil);
+	surface->depth_stencil = 0;
 	return FALSE;
+    }
+
     return TRUE;
 }
 
@@ -707,6 +714,8 @@ _cairo_gl_activate_surface_as_multisampling (cairo_gl_context_t *ctx,
     _cairo_gl_composite_flush (ctx);
     glEnable (GL_MULTISAMPLE);
 
+    _disable_scissor_buffer ();
+
     /* The last time we drew to the surface, we were not using multisampling,
        so we need to blit from the non-multisampling framebuffer into the
        multisampling framebuffer. */
@@ -736,6 +745,8 @@ _cairo_gl_activate_surface_as_nonmultisampling (cairo_gl_context_t *ctx,
 
     _cairo_gl_composite_flush (ctx);
     glDisable (GL_MULTISAMPLE);
+
+    _disable_scissor_buffer ();
 
     /* The last time we drew to the surface, we were using multisampling,
        so we need to blit from the multisampling framebuffer into the

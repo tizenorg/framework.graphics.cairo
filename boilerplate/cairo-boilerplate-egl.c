@@ -90,7 +90,6 @@ _cairo_boilerplate_egl_create_surface (const char		 *name,
 #elif CAIRO_HAS_GLESV2_SURFACE
 	EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
 #endif
-	EGL_SAMPLES, 4,
 	EGL_NONE
     };
     const EGLint ctx_attribs[] = {
@@ -131,7 +130,6 @@ _cairo_boilerplate_egl_create_surface (const char		 *name,
     }
 
     gltc->device = cairo_egl_device_create (gltc->dpy, gltc->ctx);
-	cairo_gl_device_set_thread_aware (gltc->device, FALSE);
 
     if (width < 1)
 	width = 1;

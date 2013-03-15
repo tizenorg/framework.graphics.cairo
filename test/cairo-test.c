@@ -35,6 +35,9 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <ctype.h>
+#if HAVE_FEENABLEEXCEPT
+#include <fenv.h>
+#endif
 #include <assert.h>
 #if HAVE_UNISTD_H
 #include <unistd.h>

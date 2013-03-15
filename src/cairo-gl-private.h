@@ -94,10 +94,8 @@
  * Random number that is hopefully big enough to not cause many cache evictions. */
 #define CAIRO_GL_MAX_SHADERS_PER_CONTEXT 64
 
-/* VBO size that we allocate, smaller size means we gotta flush more often,
- * but larger means hogging more memory and can cause trouble for drivers
- * (especially on embedded devices). */
-#define CAIRO_GL_VBO_SIZE (16*1024)
+/* VBO size that we allocate, smaller size means we gotta flush more often */
+#define CAIRO_GL_VBO_SIZE (256*1024)
 
 #define IMAGE_CACHE_WIDTH 2048
 #define IMAGE_CACHE_HEIGHT 2048
@@ -610,11 +608,6 @@ _cairo_gl_composite_init (cairo_gl_composite_t *setup,
 cairo_private void
 _cairo_gl_composite_fini (cairo_gl_composite_t *setup);
 
-cairo_status_t
-_cairo_gl_composite_set_operator (cairo_gl_composite_t *setup,
-				  cairo_operator_t op,
-				  cairo_bool_t assume_component_alpha);
-
 cairo_private void
 _cairo_gl_composite_set_clip_region (cairo_gl_composite_t *setup,
                                      cairo_region_t *clip_region);
@@ -659,11 +652,6 @@ cairo_private cairo_status_t
 _cairo_gl_composite_begin_multisample (cairo_gl_composite_t *setup,
 				       cairo_gl_context_t **ctx_out,
 				       cairo_bool_t multisampling);
-
-cairo_status_t
-_cairo_gl_set_operands_and_operator (cairo_gl_composite_t *setup,
-				     cairo_gl_context_t *ctx,
-				     cairo_bool_t multisampling);
 
 cairo_private void
 _cairo_gl_composite_emit_rect (cairo_gl_context_t *ctx,
@@ -930,14 +918,11 @@ _cairo_gl_pattern_to_source (cairo_surface_t *dst,
 cairo_private cairo_int_status_t
 _cairo_gl_msaa_compositor_draw_clip (cairo_gl_context_t *ctx,
 				     cairo_gl_composite_t *setup,
-				     cairo_clip_t *clip);
+				     cairo_clip_t *clip,
+				     cairo_traps_t *traps);
 
 cairo_private cairo_surface_t *
 _cairo_gl_white_source (void);
-
-void
-_cairo_gl_scissor_to_rectangle (cairo_gl_surface_t *surface,
-				const cairo_rectangle_int_t *r);
 
 static inline cairo_gl_operand_t *
 source_to_operand (cairo_surface_t *surface)
@@ -952,11 +937,9 @@ _cairo_gl_glyph_cache_unlock (cairo_gl_glyph_cache_t *cache)
     _cairo_rtree_unpin (&cache->rtree);
 }
 
-static inline cairo_bool_t
-_cairo_gl_can_use_scissor_for_clip (cairo_clip_t *clip)
-{
-    return clip->num_boxes == 1 && clip->path == NULL;
-}
+cairo_private void
+_cairo_gl_scissor_to_extents (cairo_gl_surface_t	*surface,
+			      const cairo_rectangle_int_t	*extents);
 
 
 cairo_private cairo_bool_t

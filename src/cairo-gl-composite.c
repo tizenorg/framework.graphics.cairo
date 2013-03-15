@@ -51,6 +51,7 @@
 #include "cairo-clip-private.h"
 #include "cairo-error-private.h"
 #include "cairo-image-surface-private.h"
+#include "cairo-traps-private.h"
 
 union fi {
     float f;
@@ -553,6 +554,22 @@ _cairo_gl_composite_begin_component_alpha  (cairo_gl_context_t *ctx,
     return CAIRO_STATUS_SUCCESS;
 }
 
+void
+_cairo_gl_scissor_to_extents (cairo_gl_surface_t	*surface,
+			      const cairo_rectangle_int_t	*extents)
+{
+    int x1, y1, height;
+
+    x1 = extents->x;
+    y1 = extents->y;
+    height = extents->height;
+
+    if (_cairo_gl_surface_is_texture (surface) == FALSE)
+	y1 = surface->height - (y1 + height);
+    glScissor (x1, y1, extents->width, height);
+    glEnable (GL_SCISSOR_TEST);
+}
+
 static void
 _scissor_to_doubles (cairo_gl_surface_t	*surface,
 		     double x1, double y1,
@@ -567,8 +584,8 @@ _scissor_to_doubles (cairo_gl_surface_t	*surface,
     glEnable (GL_SCISSOR_TEST);
 }
 
-void
-_cairo_gl_scissor_to_rectangle (cairo_gl_surface_t *surface,
+static void
+_scissor_to_rectangle (cairo_gl_surface_t *surface,
 		       const cairo_rectangle_int_t *r)
 {
     _scissor_to_doubles (surface, r->x, r->y, r->x+r->width, r->y+r->height);
@@ -623,9 +640,10 @@ _cairo_gl_composite_setup_painted_clipping (cairo_gl_composite_t *setup,
 
     cairo_gl_surface_t *dst = setup->dst;
     cairo_clip_t *clip = setup->clip;
-    cairo_clip_t *cached_clip = ctx->clip;
+    cairo_traps_t traps;
+    const cairo_rectangle_int_t *clip_extents;
 
-    if (_cairo_gl_can_use_scissor_for_clip (clip)) {
+    if (clip->num_boxes == 1 && clip->path == NULL) {
 	_scissor_to_box (dst, &clip->boxes[0]);
 	goto disable_stencil_buffer_and_return;
     }
@@ -635,29 +653,26 @@ _cairo_gl_composite_setup_painted_clipping (cairo_gl_composite_t *setup,
 	goto disable_stencil_buffer_and_return;
     }
 
-    /* The clip is not rectangular, so use the stencil buffer. */
     if (! ctx->states_cache.depth_mask ) {
 	glDepthMask (GL_TRUE);
 	ctx->states_cache.depth_mask = TRUE;
     }
     glEnable (GL_STENCIL_TEST);
+    clip_extents = _cairo_clip_get_extents ((const cairo_clip_t *)clip);
+    _cairo_gl_scissor_to_extents (dst, clip_extents);
 
     if (equal_clip)
 	return CAIRO_INT_STATUS_SUCCESS;
 
-    /* Clear the stencil buffer of previous cached clip */
-    if (cached_clip) {
-	_cairo_gl_scissor_to_rectangle (dst, _cairo_clip_get_extents (cached_clip));
-	glClearStencil (0);
-	glClear (GL_STENCIL_BUFFER_BIT);
-	_disable_scissor_buffer ();
-    }
-
+    glClearStencil (0);
+    glClear (GL_STENCIL_BUFFER_BIT);
     glStencilOp (GL_REPLACE, GL_REPLACE, GL_REPLACE);
     glStencilFunc (GL_EQUAL, 1, 0xffffffff);
     glColorMask (0, 0, 0, 0);
 
-    status = _cairo_gl_msaa_compositor_draw_clip (ctx, setup, clip);
+    _cairo_traps_init (&traps);
+    status = _cairo_gl_msaa_compositor_draw_clip (ctx, setup, clip, &traps);
+    _cairo_traps_fini (&traps);
 
     if (unlikely (status)) {
 	glColorMask (1, 1, 1, 1);
@@ -685,7 +700,6 @@ _cairo_gl_composite_setup_clipping (cairo_gl_composite_t *setup,
 				    cairo_gl_context_t *ctx,
 				    int vertex_size)
 {
-    cairo_int_status_t status;
     cairo_bool_t same_clip;
 
     if (! ctx->clip && ! setup->clip && ! ctx->clip_region)
@@ -702,24 +716,21 @@ _cairo_gl_composite_setup_clipping (cairo_gl_composite_t *setup,
 
     assert (!setup->clip_region || !setup->clip);
 
+    if (! same_clip) {
+	_cairo_clip_destroy (ctx->clip);
+	ctx->clip = _cairo_clip_copy (setup->clip);
+    }
+
     if (ctx->clip_region) {
 	_disable_stencil_buffer ();
 	glEnable (GL_SCISSOR_TEST);
 	return CAIRO_INT_STATUS_SUCCESS;
     }
 
-    if (setup->clip) {
-	status = _cairo_gl_composite_setup_painted_clipping (setup,
-							      ctx,
-							      vertex_size,
-							      same_clip);
-	if (! same_clip) {
-	_cairo_clip_destroy (ctx->clip);
-	ctx->clip = _cairo_clip_copy (setup->clip);
-	}
-
-	return status;
-    }
+    if (setup->clip)
+	    return _cairo_gl_composite_setup_painted_clipping (setup, ctx,
+                                                           vertex_size,
+                                                           same_clip);
 
 finish:
     _disable_stencil_buffer ();
@@ -728,16 +739,30 @@ finish:
 }
 
 cairo_status_t
-_cairo_gl_set_operands_and_operator (cairo_gl_composite_t *setup,
-				     cairo_gl_context_t *ctx,
-				     cairo_bool_t multisampling)
+_cairo_gl_composite_begin_multisample (cairo_gl_composite_t *setup,
+				       cairo_gl_context_t **ctx_out,
+				       cairo_bool_t multisampling)
 {
     unsigned int dst_size, src_size, mask_size, vertex_size;
+    cairo_gl_context_t *ctx;
     cairo_status_t status;
-    cairo_gl_shader_t *shader;
     cairo_bool_t component_alpha;
+    cairo_gl_shader_t *shader;
     cairo_operator_t op = setup->op;
     cairo_surface_t *mask_surface = NULL;
+
+    assert (setup->dst);
+
+    status = _cairo_gl_context_acquire (setup->dst->base.device, &ctx);
+    if (unlikely (status))
+	return status;
+
+    _cairo_gl_context_set_destination (ctx, setup->dst, multisampling);
+
+    if (ctx->states_cache.blend_enabled == FALSE) {
+	glEnable (GL_BLEND);
+	ctx->states_cache.blend_enabled = TRUE;
+    }
 
     component_alpha =
 	setup->mask.type == CAIRO_GL_OPERAND_TEXTURE &&
@@ -745,40 +770,40 @@ _cairo_gl_set_operands_and_operator (cairo_gl_composite_t *setup,
 
     /* Do various magic for component alpha */
     if (component_alpha) {
-	status = _cairo_gl_composite_begin_component_alpha (ctx, setup);
-	if (unlikely (status))
-	    return status;
-     } else {
-	if (ctx->pre_shader) {
-	    _cairo_gl_composite_flush (ctx);
-	    ctx->pre_shader = NULL;
-	}
+        status = _cairo_gl_composite_begin_component_alpha (ctx, setup);
+        if (unlikely (status))
+            goto FAIL;
+    } else {
+        if (ctx->pre_shader) {
+            _cairo_gl_composite_flush (ctx);
+            ctx->pre_shader = NULL;
+        }
     }
 
     status = _cairo_gl_get_shader_by_type (ctx,
 					   &setup->src,
 					   &setup->mask,
 					   setup->spans,
-					   component_alpha ?
+                                           component_alpha ?
 					   CAIRO_GL_SHADER_IN_CA_SOURCE :
 					   CAIRO_GL_SHADER_IN_NORMAL,
                                            &shader);
     if (unlikely (status)) {
-	ctx->pre_shader = NULL;
-	return status;
+        ctx->pre_shader = NULL;
+        goto FAIL;
     }
     if (ctx->current_shader != shader)
         _cairo_gl_composite_flush (ctx);
 
     status = CAIRO_STATUS_SUCCESS;
 
-    dst_size = 2 * sizeof (GLfloat);
-    src_size = _cairo_gl_operand_get_vertex_size (&setup->src);
+    dst_size  = 2 * sizeof (GLfloat);
+    src_size  = _cairo_gl_operand_get_vertex_size (&setup->src);
     mask_size = _cairo_gl_operand_get_vertex_size (&setup->mask);
     vertex_size = dst_size + src_size + mask_size;
 
     if (setup->spans)
-	vertex_size += sizeof (GLfloat);
+	    vertex_size += sizeof (GLfloat);
 
     _cairo_gl_composite_setup_vbo (ctx, vertex_size);
 
@@ -807,39 +832,15 @@ _cairo_gl_set_operands_and_operator (cairo_gl_composite_t *setup,
     _cairo_gl_set_operator (ctx, setup->op, component_alpha);
 
     if (_cairo_gl_context_is_flushed (ctx)) {
-	if (ctx->pre_shader) {
-	    _cairo_gl_set_shader (ctx, ctx->pre_shader);
-	    _cairo_gl_composite_bind_to_shader (ctx, setup);
-	}
-	_cairo_gl_set_shader (ctx, shader);
-	_cairo_gl_composite_bind_to_shader (ctx, setup);
+        if (ctx->pre_shader) {
+            _cairo_gl_set_shader (ctx, ctx->pre_shader);
+            _cairo_gl_composite_bind_to_shader (ctx, setup);
+        }
+        _cairo_gl_set_shader (ctx, shader);
+        _cairo_gl_composite_bind_to_shader (ctx, setup);
     }
 
-    return status;
-}
-
-cairo_status_t
-_cairo_gl_composite_begin_multisample (cairo_gl_composite_t *setup,
-				       cairo_gl_context_t **ctx_out,
-				       cairo_bool_t multisampling)
-{
-    cairo_gl_context_t *ctx;
-    cairo_status_t status;
-
-    assert (setup->dst);
-
-    status = _cairo_gl_context_acquire (setup->dst->base.device, &ctx);
-    if (unlikely (status))
-	return status;
-
-    _cairo_gl_context_set_destination (ctx, setup->dst, multisampling);
-    if (ctx->states_cache.blend_enabled == FALSE) {
-	glEnable (GL_BLEND);
-	ctx->states_cache.blend_enabled = TRUE;
-    }
-    _cairo_gl_set_operands_and_operator (setup, ctx, multisampling);
-
-    status = _cairo_gl_composite_setup_clipping (setup, ctx, ctx->vertex_size);
+    status = _cairo_gl_composite_setup_clipping (setup, ctx, vertex_size);
     if (unlikely (status))
 	goto FAIL;
 
@@ -941,7 +942,7 @@ _cairo_gl_composite_draw_triangles_with_clip_region (cairo_gl_context_t *ctx,
 
 	cairo_region_get_rectangle (ctx->clip_region, i, &rect);
 
-	_cairo_gl_scissor_to_rectangle (ctx->current_target, &rect);
+	_scissor_to_rectangle (ctx->current_target, &rect);
 	_cairo_gl_composite_draw_triangles (ctx, count);
     }
 }
@@ -1169,10 +1170,13 @@ _cairo_gl_composite_fini (cairo_gl_composite_t *setup)
 }
 
 cairo_status_t
-_cairo_gl_composite_set_operator (cairo_gl_composite_t *setup,
-				  cairo_operator_t op,
-				  cairo_bool_t assume_component_alpha)
+_cairo_gl_composite_init (cairo_gl_composite_t *setup,
+                          cairo_operator_t op,
+                          cairo_gl_surface_t *dst,
+                          cairo_bool_t assume_component_alpha)
 {
+    memset (setup, 0, sizeof (cairo_gl_composite_t));
+
     if (assume_component_alpha) {
         if (op != CAIRO_OPERATOR_CLEAR &&
             op != CAIRO_OPERATOR_OVER &&
@@ -1183,26 +1187,8 @@ _cairo_gl_composite_set_operator (cairo_gl_composite_t *setup,
             return UNSUPPORTED ("unsupported operator");
     }
 
-    setup->op = op;
-    return CAIRO_STATUS_SUCCESS;
-}
-
-cairo_status_t
-_cairo_gl_composite_init (cairo_gl_composite_t *setup,
-                          cairo_operator_t op,
-                          cairo_gl_surface_t *dst,
-                          cairo_bool_t assume_component_alpha)
-{
-    cairo_status_t status;
-
-    memset (setup, 0, sizeof (cairo_gl_composite_t));
-
-    status = _cairo_gl_composite_set_operator (setup, op,
-					       assume_component_alpha);
-    if (status)
-	return status;
-
     setup->dst = dst;
+    setup->op = op;
     setup->clip_region = dst->clip_region;
 
     return CAIRO_STATUS_SUCCESS;

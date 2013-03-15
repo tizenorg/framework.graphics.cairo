@@ -10,6 +10,4 @@ cairo_fdr_la_SOURCES = fdr.c
 cairo_fdr_la_CPPFLAGS = $(AM_CPPFLAGS)
 cairo_fdr_la_CFLAGS = $(CAIRO_CFLAGS)
 cairo_fdr_la_LDFLAGS = -module -no-undefined
-if CAIRO_HAS_DL
 cairo_fdr_la_LIBADD = -ldl
-endif

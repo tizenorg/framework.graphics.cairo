@@ -284,7 +284,7 @@ _cairo_pen_vertices_needed (double	    tolerance,
 								     radius);
     int num_vertices;
 
-    if (tolerance >= 4*major_axis) { /* XXX relaxed from 2*major for inkscape */
+    if (tolerance >= 2*major_axis) {
 	num_vertices = 1;
     } else if (tolerance >= major_axis) {
 	num_vertices = 4;
@@ -412,23 +412,21 @@ _cairo_pen_find_active_cw_vertices (const cairo_pen_t *pen,
 	    i = 0;
     *start = i;
 
-    if (_cairo_slope_compare (out, &pen->vertices[i].slope_ccw) >= 0) {
-	lo = i;
-	hi = i + pen->num_vertices;
+    lo = i;
+    hi = i + pen->num_vertices;
+    i = (lo + hi) >> 1;
+    do {
+	int j = i;
+	if (j >= pen->num_vertices)
+	    j -= pen->num_vertices;
+	if (_cairo_slope_compare (&pen->vertices[j].slope_cw, out) > 0)
+	    hi = i;
+	else
+	    lo = i;
 	i = (lo + hi) >> 1;
-	do {
-	    int j = i;
-	    if (j >= pen->num_vertices)
-		j -= pen->num_vertices;
-	    if (_cairo_slope_compare (&pen->vertices[j].slope_cw, out) > 0)
-		hi = i;
-	    else
-		lo = i;
-	    i = (lo + hi) >> 1;
-	} while (hi - lo > 1);
-	if (i >= pen->num_vertices)
-	    i -= pen->num_vertices;
-    }
+    } while (hi - lo > 1);
+    if (i >= pen->num_vertices)
+	i -= pen->num_vertices;
     *stop = i;
 }
 
@@ -454,22 +452,20 @@ _cairo_pen_find_active_ccw_vertices (const cairo_pen_t *pen,
 	    i = 0;
     *start = i;
 
-    if (_cairo_slope_compare (&pen->vertices[i].slope_cw, out) <= 0) {
-	lo = i;
-	hi = i + pen->num_vertices;
+    lo = i;
+    hi = i + pen->num_vertices;
+    i = (lo + hi) >> 1;
+    do {
+	int j = i;
+	if (j >= pen->num_vertices)
+	    j -= pen->num_vertices;
+	if (_cairo_slope_compare (out, &pen->vertices[j].slope_ccw) > 0)
+	    hi = i;
+	else
+	    lo = i;
 	i = (lo + hi) >> 1;
-	do {
-	    int j = i;
-	    if (j >= pen->num_vertices)
-		j -= pen->num_vertices;
-	    if (_cairo_slope_compare (out, &pen->vertices[j].slope_ccw) > 0)
-		hi = i;
-	    else
-		lo = i;
-	    i = (lo + hi) >> 1;
-	} while (hi - lo > 1);
-	if (i >= pen->num_vertices)
-	    i -= pen->num_vertices;
-    }
+    } while (hi - lo > 1);
+    if (i >= pen->num_vertices)
+	i -= pen->num_vertices;
     *stop = i;
 }

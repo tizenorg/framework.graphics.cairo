@@ -760,6 +760,7 @@ check_composite_glyphs (const cairo_composite_rectangles_t *extents,
 }
 
 #if HAS_PIXMAN_GLYPHS
+#error
 static pixman_glyph_cache_t *global_glyph_cache;
 
 static inline pixman_glyph_cache_t *
@@ -2716,8 +2717,7 @@ span_renderer_init (cairo_abstract_span_renderer_t	*_r,
     cairo_operator_t op = composite->op;
     cairo_int_status_t status;
 
-    TRACE ((stderr, "%s: antialias=%d, needs_clip=%d\n", __FUNCTION__,
-	    antialias, needs_clip));
+    TRACE ((stderr, "%s\n", __FUNCTION__));
 
     if (needs_clip)
 	return CAIRO_INT_STATUS_UNSUPPORTED;

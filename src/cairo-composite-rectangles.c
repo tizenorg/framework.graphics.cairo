@@ -61,7 +61,7 @@ _cairo_composite_rectangles_check_lazy_init (cairo_composite_rectangles_t *exten
 
     if (type == CAIRO_PATTERN_TYPE_SURFACE) {
     cairo_surface_pattern_t *surface_pattern = (cairo_surface_pattern_t *) pattern;
-    cairo_surface_t *pattern_surface = surface_pattern->surface;
+    cairo_surface_t *pattern_surface = pattern_surface = surface_pattern->surface;
 
 	/* XXX: both source and target are GL surface */
 	if (cairo_surface_get_type (pattern_surface) == CAIRO_SURFACE_TYPE_GL &&
@@ -635,13 +635,6 @@ _cairo_composite_rectangles_init_for_glyphs (cairo_composite_rectangles_t *exten
 						      overlap);
     if (unlikely (status))
 	return status;
-
-    if (overlap && *overlap &&
-	scaled_font->options.antialias == CAIRO_ANTIALIAS_NONE &&
-	_cairo_pattern_is_opaque_solid (&extents->source_pattern.base))
-    {
-	*overlap = FALSE;
-    }
 
     return _cairo_composite_rectangles_intersect (extents, clip);
 }

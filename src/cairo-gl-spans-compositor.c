@@ -291,9 +291,6 @@ draw_image_boxes (void *_dst,
     struct _cairo_boxes_chunk *chunk;
     int i;
 
-    if (_cairo_gl_surface_is_texture (dst))
-    return CAIRO_INT_STATUS_UNSUPPORTED;
-
     for (chunk = &boxes->chunks; chunk; chunk = chunk->next) {
 	for (i = 0; i < chunk->count; i++) {
 	    cairo_box_t *b = &chunk->base[i];

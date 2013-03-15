@@ -262,7 +262,6 @@ _cairo_gl_image_cache_add_image (cairo_gl_context_t *ctx,
 	(*image_node)->p1.y /= IMAGE_CACHE_HEIGHT;
 	(*image_node)->p2.y /= IMAGE_CACHE_HEIGHT;
     }
-    (*image_node)->user_data_removed = FALSE;
     image->content_changed = FALSE;
     /* Set user data. */
     status = cairo_surface_set_user_data (&image->base,
@@ -728,8 +727,6 @@ _cairo_gl_gradient_operand_init (cairo_gl_operand_t *operand,
 	cairo_matrix_t m;
 	cairo_circle_double_t circles[2];
 	double x0, y0, r0, dx, dy, dr;
-	double scale = 1.0;
-	cairo_radial_pattern_t *radial_pattern = (cairo_radial_pattern_t *)gradient;
 
 	/*
 	 * Some fragment shader implementations use half-floats to
@@ -743,35 +740,18 @@ _cairo_gl_gradient_operand_init (cairo_gl_operand_t *operand,
 	_cairo_gradient_pattern_fit_to_range (gradient, 8.,
 					      &operand->gradient.m, circles);
 
-	/*
-	 * Instead of using scaled data that might introducing rounding
-	 * errors, we use original data directly
-	 */
-	if (circles[0].center.x)
-		scale = radial_pattern->cd1.center.x / circles[0].center.x;
-	else if (circles[0].center.y)
-		scale = radial_pattern->cd1.center.y / circles[0].center.y;
-	else if (circles[0].radius)
-		scale = radial_pattern->cd1.radius / circles[0].radius;
-	else if (circles[1].center.x)
-		scale = radial_pattern->cd2.center.x / circles[1].center.x;
-	else if (circles[1].center.y)
-		scale = radial_pattern->cd2.center.y / circles[1].center.y;
-	else if (circles[1].radius)
-		scale = radial_pattern->cd2.radius / circles[1].radius;
-
 	x0 = circles[0].center.x;
 	y0 = circles[0].center.y;
 	r0 = circles[0].radius;
-	dx = radial_pattern->cd2.center.x - radial_pattern->cd1.center.x;
-	dy = radial_pattern->cd2.center.y - radial_pattern->cd1.center.y;
-	dr = radial_pattern->cd2.radius	  - radial_pattern->cd1.radius;
+	dx = circles[1].center.x - x0;
+	dy = circles[1].center.y - y0;
+	dr = circles[1].radius   - r0;
 
-	operand->gradient.a = (dx * dx + dy * dy - dr * dr)/(scale * scale);
+	operand->gradient.a = dx * dx + dy * dy - dr * dr;
 	operand->gradient.radius_0 = r0;
-	operand->gradient.circle_d.center.x = dx / scale;
-	operand->gradient.circle_d.center.y = dy / scale;
-	operand->gradient.circle_d.radius	= dr / scale;
+	operand->gradient.circle_d.center.x = dx;
+	operand->gradient.circle_d.center.y = dy;
+	operand->gradient.circle_d.radius   = dr;
 
 	if (operand->gradient.a == 0)
 	    operand->type = CAIRO_GL_OPERAND_RADIAL_GRADIENT_A0;
@@ -1036,7 +1016,7 @@ _cairo_gl_operand_bind_to_shader (cairo_gl_context_t *ctx,
 		height = operand->texture.surface->height;
 	    }
 	    else {
-		width = operand->gradient.gradient->tex_width,
+		width = operand->gradient.gradient->cache_entry.size,
 		height = 1;
 	    }
 	    strcpy (custom_part, "_texdims");

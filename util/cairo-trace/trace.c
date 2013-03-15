@@ -30,7 +30,6 @@
 
 #include <dlfcn.h>
 #include <stdint.h>
-#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/types.h>
@@ -164,7 +163,6 @@ struct _object {
     int width, height;
     cairo_bool_t foreign;
     cairo_bool_t defined;
-    cairo_bool_t unknown;
     int operand;
     void *data;
     void (*destroy)(void *);
@@ -939,13 +937,13 @@ ensure_operands (int num_operands)
 }
 
 static void
-_consume_operand (bool discard)
+_consume_operand (void)
 {
     Object *obj;
 
     ensure_operands (1);
     obj = current_object[--current_stack_depth];
-    if (!discard && ! obj->defined) {
+    if (! obj->defined) {
 	_trace_printf ("dup /%s%ld exch def\n",
 		       obj->type->op_code,
 		       obj->token);
@@ -969,18 +967,24 @@ _exch_operands (void)
 }
 
 static cairo_bool_t
-_pop_operands_to_depth (int depth)
+_pop_operands_to_object (Object *obj)
 {
-    while (current_stack_depth > depth) {
+    if (obj->operand == -1)
+	return FALSE;
+
+    if (obj->operand == current_stack_depth - 2) {
+	_exch_operands ();
+	_trace_printf ("exch ");
+	return TRUE;
+    }
+
+    while (current_stack_depth > obj->operand + 1) {
 	Object *c_obj;
 
 	ensure_operands (1);
 	c_obj = current_object[--current_stack_depth];
 	c_obj->operand = -1;
 	if (! c_obj->defined) {
-	    if (c_obj->unknown)
-		return FALSE;
-
 	    _trace_printf ("/%s%ld exch def\n",
 		     c_obj->type->op_code,
 		     c_obj->token);
@@ -991,23 +995,6 @@ _pop_operands_to_depth (int depth)
 	}
     }
 
-    return TRUE;
-}
-
-static cairo_bool_t
-_pop_operands_to_object (Object *obj)
-{
-    if (obj->operand == -1)
-	return FALSE;
-
-    if (obj->operand == current_stack_depth - 1)
-	return TRUE;
-
-    if (! _pop_operands_to_depth (obj->operand + 2))
-	return FALSE;
-
-    _exch_operands ();
-    _trace_printf ("exch ");
     return TRUE;
 }
 
@@ -1948,7 +1935,7 @@ cairo_create (cairo_surface_t *target)
 
 	    /* we presume that we will continue to use the context */
 	    if (_pop_operands_to (SURFACE, target)){
-		_consume_operand (false);
+		_consume_operand ();
 	    } else {
 		_trace_printf ("s%ld ", surface_id);
 	    }
@@ -2181,14 +2168,14 @@ cairo_set_source_surface (cairo_t *cr, cairo_surface_t *surface, double x, doubl
 	if (_is_current (SURFACE, surface, 0) &&
 	    _is_current (CONTEXT, cr, 1))
 	{
-	    _consume_operand (false);
+	    _consume_operand ();
 	}
 	else if (_is_current (SURFACE, surface, 1) &&
 		 _is_current (CONTEXT, cr, 0))
 	{
 	    _trace_printf ("exch ");
 	    _exch_operands ();
-	    _consume_operand (false);
+	    _consume_operand ();
 	} else if (obj->defined) {
 	    _emit_context (cr);
 	    _trace_printf ("s%ld ", obj->token);
@@ -2226,7 +2213,7 @@ cairo_set_source (cairo_t *cr, cairo_pattern_t *source)
 	    _is_current (CONTEXT, cr, 1))
 	{
 	    if (obj->defined) {
-		_consume_operand (false);
+		_consume_operand ();
 		need_context_and_pattern = FALSE;
 	    }
 	}
@@ -2236,7 +2223,7 @@ cairo_set_source (cairo_t *cr, cairo_pattern_t *source)
 	    if (obj->defined) {
 		_trace_printf ("exch ");
 		_exch_operands ();
-		_consume_operand (false);
+		_consume_operand ();
 		need_context_and_pattern = FALSE;
 	    }
 	}
@@ -2688,7 +2675,7 @@ cairo_mask (cairo_t *cr, cairo_pattern_t *pattern)
 	    _is_current (CONTEXT, cr, 1))
 	{
 	    if (obj->defined) {
-		_consume_operand (false);
+		_consume_operand ();
 		need_context_and_pattern = FALSE;
 	    }
 	}
@@ -2698,7 +2685,7 @@ cairo_mask (cairo_t *cr, cairo_pattern_t *pattern)
 	    if (obj->defined) {
 		_trace_printf ("exch ");
 		_exch_operands ();
-		_consume_operand (false);
+		_consume_operand ();
 		need_context_and_pattern = FALSE;
 	    }
 	}
@@ -2725,14 +2712,14 @@ cairo_mask_surface (cairo_t *cr, cairo_surface_t *surface, double x, double y)
 	if (_is_current (SURFACE, surface, 0) &&
 	    _is_current (CONTEXT, cr, 1))
 	{
-	    _consume_operand (false);
+	    _consume_operand ();
 	}
 	else if (_is_current (SURFACE, surface, 1) &&
 		 _is_current (CONTEXT, cr, 0))
 	{
 	    _trace_printf ("exch ");
 	    _exch_operands ();
-	    _consume_operand (false);
+	    _consume_operand ();
 	} else if (obj->defined){
 	    _emit_context (cr);
 	    _trace_printf ("s%ld ", obj->token);
@@ -2914,14 +2901,14 @@ cairo_set_font_face (cairo_t *cr, cairo_font_face_t *font_face)
 	if (_is_current (FONT_FACE, font_face, 0) &&
 	    _is_current (CONTEXT, cr, 1))
 	{
-	    _consume_operand (false);
+	    _consume_operand ();
 	}
 	else if (_is_current (FONT_FACE, font_face, 1) &&
 		 _is_current (CONTEXT, cr, 0))
 	{
 	    _trace_printf ("exch ");
 	    _exch_operands ();
-	    _consume_operand (false);
+	    _consume_operand ();
 	}
 	else
 	{
@@ -3084,14 +3071,14 @@ cairo_set_scaled_font (cairo_t *cr, const cairo_scaled_font_t *scaled_font)
 	if (_pop_operands_to (SCALED_FONT, scaled_font)) {
 	    if (_is_current (CONTEXT, cr, 1)) {
 		if (_write_lock ()) {
-		    _consume_operand (false);
+		    _consume_operand ();
 		    _trace_printf ("set-scaled-font\n");
 		    _write_unlock ();
 		}
 	    } else {
 		if (_get_object (CONTEXT, cr)->defined) {
 		    if (_write_lock ()) {
-			_consume_operand (false);
+			_consume_operand ();
 			_trace_printf ("c%ld exch set-scaled-font pop\n",
 				       _get_context_id (cr));
 			_write_unlock ();
@@ -3148,7 +3135,7 @@ cairo_scaled_font_create (cairo_font_face_t *font_face,
 	&& _write_lock ())
     {
 	if (_pop_operands_to (FONT_FACE, font_face))
-	    _consume_operand (false);
+	    _consume_operand ();
 	else
 	    _trace_printf ("f%ld ", _get_font_face_id (font_face));
 
@@ -3675,19 +3662,15 @@ cairo_surface_map_to_image (cairo_surface_t *surface,
     if (_write_lock ()) {
 	Object *obj = _create_surface (ret);
 
-	_emit_surface (surface);
 	if (extents) {
-	    _trace_printf ("[%d %d %d %d] map-to-image %% s%ld\n",
+	    _trace_printf ("[%d %d %d %d] map-to-image\n",
 			   extents->x, extents->y,
-			   extents->width, extents->height,
-			   obj->token);
+			   extents->width, extents->height);
 	    obj->width  = extents->width;
 	    obj->height = extents->height;
 	} else {
-	    _trace_printf ("[ ] map-to-image %% s%ld\n", obj->token);
+	    _trace_printf ("[ ] map-to-image\n");
 	}
-
-	obj->unknown = TRUE;
 	_push_object (obj);
 	_write_unlock ();
     }
@@ -3704,17 +3687,10 @@ cairo_surface_unmap_image (cairo_surface_t *surface,
 
     _emit_line_info ();
     if (_write_lock ()) {
-	Object *s = _get_object (SURFACE, surface);
-	Object *i = _get_object (SURFACE, image);
-	if (!(s->operand == current_stack_depth - 2 &&
-	      i->operand == current_stack_depth - 1)) {
-	    if (i->operand != s->operand + 1 || ! _pop_operands_to_depth (i->operand + 1)) {
-		_emit_surface (surface);
-		_emit_surface (image);
-	    }
-	}
-	_trace_printf ("unmap-image\n");
-	_consume_operand (true);
+	_trace_printf ("/s%ld /s%ld  unmap-image\n",
+		       _get_surface_id (surface),
+		       _get_surface_id (image));
+	_consume_operand ();
 	_write_unlock ();
     }
 
@@ -4044,7 +4020,7 @@ cairo_pattern_create_for_surface (cairo_surface_t *surface)
 	surface_id = _get_surface_id (surface);
 
 	if (_pop_operands_to (SURFACE, surface)) {
-	    _consume_operand (false);
+	    _consume_operand ();
 	} else {
 	    _trace_printf ("s%ld ", surface_id);
 	}
