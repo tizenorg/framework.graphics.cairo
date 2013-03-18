@@ -25,7 +25,7 @@
 /testcase/utc_big_little_triangle_image
 #/testcase/utc_big_trap_image
 /testcase/utc_bilevel_image_image
-/testcase/utc_bitmap_font_image
+#/testcase/utc_bitmap_font_image
 /testcase/utc_bug_40410_image
 /testcase/utc_bug_bo_rectangular_image
 /testcase/utc_bug_bo_ricotz_image
@@ -536,7 +536,7 @@
 /testcase/utc_big_little_triangle_gl
 /testcase/utc_big_trap_gl
 /testcase/utc_bilevel_image_gl
-/testcase/utc_bitmap_font_gl
+#/testcase/utc_bitmap_font_gl
 /testcase/utc_bug_40410_gl
 /testcase/utc_bug_bo_rectangular_gl
 /testcase/utc_bug_bo_ricotz_gl

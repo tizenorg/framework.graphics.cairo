@@ -211,9 +211,8 @@ _cairo_gl_dispatch_init_multisampling (cairo_gl_dispatch_t *dispatch,
 				       int gl_version,
 				       cairo_gl_flavor_t gl_flavor)
 {
-    /* For the multisampling table, the there are two GLES versions
-     * of the extension, so we put one in the EXT slot and one in
-     * the real ES slot.*/
+    /* For the multisampling table, there are two GLES versions of the
+     * extension, so we put one in the EXT slot and one in the real ES slot.*/
     cairo_gl_dispatch_name_t dispatch_name = CAIRO_GL_DISPATCH_NAME_CORE;
     if (gl_flavor == CAIRO_GL_FLAVOR_ES) {
 	if (_cairo_gl_has_extension ("GL_EXT_multisampled_render_to_texture"))

@@ -1,7 +1,7 @@
 #sbs-git:slp/unmodified/cairo cairo 1.11.3 076a40b95caaadbc4a05b92a1a1d7840427e05b7
 Name:       cairo
 Summary:    A vector graphics library
-Version:    1.12.4
+Version:    1.12.12
 Release:    1
 Group:      System/Libraries
 License:    LGPLv2 or MPLv1.1
@@ -81,13 +81,15 @@ cat COPYING COPYING-LGPL-2.1 COPYING-MPL-1.1 > %{buildroot}/usr/share/license/%{
 
 %files
 %manifest cairo.manifest
-%{_libdir}/libcairo*.so.*
+%{_libdir}/libcairo.so.*
 /usr/share/license/%{name}
+%exclude %{_libdir}/libcairo-*.so.*
 
 %files devel
 %manifest cairo.manifest
 %{_includedir}/*
 %{_libdir}/libcairo*.so
+%{_libdir}/libcairo-*.so.*
 %{_libdir}/pkgconfig/*
 %exclude %{_bindir}/cairo-trace
 %exclude %{_libdir}/cairo/libcairo-trace.so

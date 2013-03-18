@@ -69,6 +69,7 @@ typedef struct _cairo_gl_gradient {
     cairo_reference_count_t       ref_count;
     cairo_device_t               *device; /* NB: we don't hold a reference */
     GLuint                        tex;
+    int                           tex_width;
     unsigned int	          n_stops;
     const cairo_gradient_stop_t  *stops;
     cairo_gradient_stop_t         stops_embedded[1];

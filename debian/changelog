@@ -1,3 +1,59 @@
+cairo (1.12.8-slp2+3) unstable; urgency=low
+
+  * Remove gobject, script-interpreter libraries from package
+  * Git: framework/graphics/cairo
+  * Tag: cairo_1.12.8+3
+
+ -- Dongyeon Kim <dy5.kim@samsung.com>  Tue, 05 Feb 2013 14:00:47 +0900
+
+cairo (1.12.8-slp2+2) unstable; urgency=low
+
+  * gl: Bug fix of the clip handling
+  * Git: framework/graphics/cairo
+  * Tag: cairo_1.12.8+2
+
+ -- Dongyeon Kim <dy5.kim@samsung.com>  Wed, 23 Jan 2013 16:28:17 +0900
+
+cairo (1.12.8-slp2+1) unstable; urgency=low
+
+  * Update cairo to 1.12.8
+  * Git: framework/graphics/cairo
+  * Tag: cairo_1.12.8+1
+
+ -- Dongyeon Kim <dy5.kim@samsung.com>  Fri, 11 Jan 2013 18:09:24 +0900
+
+cairo (1.12.6-slp2+2) unstable; urgency=low
+
+  * Bug fixes for stroke and gradients
+  * Git: framework/graphics/cairo
+  * Tag: cairo_1.12.6-slp2+2
+
+ -- Dongyeon Kim <dy5.kim@samsung.com>  Thu, 03 Jan 2013 11:35:33 +0900
+
+cairo (1.12.6-slp2+1) unstable; urgency=low
+
+  * Update cairo to 1.12.6
+  * Git: framework/graphics/cairo
+  * Tag: cairo_1.12.6-slp2+1
+
+ -- Dongyeon Kim <dy5.kim@samsung.com>  Wed, 28 Nov 2012 10:13:41 +0900
+
+cairo (1.12.4-slp2+3) unstable; urgency=low
+
+  * gl: Fix gradient cache overflow
+  * Git: framework/graphics/cairo
+  * Tag: cairo_1.12.4-slp2+3
+
+ -- Dongyeon Kim <dy5.kim@samsung.com>  Tue, 06 Nov 2012 10:22:48 +0900
+
+cairo (1.12.4-slp2+2) unstable; urgency=low
+
+  * Various bug fixes
+  * Git: framework/graphics/cairo
+  * Tag: cairo_1.12.4-slp2+2
+
+ -- Dongyeon Kim <dy5.kim@samsung.com>  Wed, 24 Oct 2012 19:23:38 +0900
+
 cairo (1.12.4-slp2+1) unstable; urgency=low
 
   * Update cairo to 1.12.4

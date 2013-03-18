@@ -50,6 +50,7 @@
 #include "cairo-image-surface-private.h"
 #include "cairo-spans-compositor-private.h"
 #include "cairo-surface-backend-private.h"
+#include "cairo-surface-offset-private.h"
 
 static cairo_int_status_t
 acquire (void *abstract_dst)
@@ -83,6 +84,9 @@ draw_image_boxes (void *_dst,
     struct _cairo_boxes_chunk *chunk;
     int i;
 
+    if (_cairo_gl_surface_is_texture (dst))
+    return CAIRO_INT_STATUS_UNSUPPORTED;
+
     for (chunk = &boxes->chunks; chunk; chunk = chunk->next) {
 	for (i = 0; i < chunk->count; i++) {
 	    cairo_box_t *b = &chunk->base[i];
@@ -109,6 +113,7 @@ emit_aligned_boxes (cairo_gl_context_t *ctx,
 		    const cairo_boxes_t *boxes)
 {
     const struct _cairo_boxes_chunk *chunk;
+    cairo_gl_emit_rect_t emit = _cairo_gl_context_choose_emit_rect (ctx);
     int i;
 
     for (chunk = &boxes->chunks; chunk; chunk = chunk->next) {
@@ -117,7 +122,7 @@ emit_aligned_boxes (cairo_gl_context_t *ctx,
 	    int y1 = _cairo_fixed_integer_part (chunk->base[i].p1.y);
 	    int x2 = _cairo_fixed_integer_part (chunk->base[i].p2.x);
 	    int y2 = _cairo_fixed_integer_part (chunk->base[i].p2.y);
-	    _cairo_gl_composite_emit_rect (ctx, x1, y1, x2, y2, 0);
+	    emit (ctx, x1, y1, x2, y2);
 	}
     }
 }
@@ -227,7 +232,7 @@ composite (void			*_dst,
         goto FAIL;
 
     /* XXX clip */
-    _cairo_gl_composite_emit_rect (ctx, dst_x, dst_y, dst_x+width, dst_y+height, 0);
+    _cairo_gl_context_emit_rect (ctx, dst_x, dst_y, dst_x+width, dst_y+height);
     status = _cairo_gl_context_release (ctx, CAIRO_STATUS_SUCCESS);
 
 FAIL:
@@ -300,6 +305,36 @@ traps_to_operand (void *_dst,
 	return image->status;
     }
 
+    /* GLES2 only supports RGB/RGBA when uploading */
+    if (_cairo_gl_get_flavor () == CAIRO_GL_FLAVOR_ES) {
+	cairo_surface_pattern_t pattern;
+	cairo_surface_t *rgba_image;
+
+	/* XXX perform this fixup inside _cairo_gl_draw_image() */
+
+	rgba_image =
+	    _cairo_image_surface_create_with_pixman_format (NULL,
+							    _cairo_is_little_endian () ?  PIXMAN_a8b8g8r8 : PIXMAN_r8g8b8a8,
+							    extents->width,
+							    extents->height,
+							    0);
+	if (unlikely (rgba_image->status))
+	    return rgba_image->status;
+
+	_cairo_pattern_init_for_surface (&pattern, image);
+	status = _cairo_surface_paint (rgba_image, CAIRO_OPERATOR_SOURCE,
+				       &pattern.base, NULL);
+	_cairo_pattern_fini (&pattern.base);
+
+	cairo_surface_destroy (image);
+	image = rgba_image;
+
+	if (unlikely (status)) {
+	    cairo_surface_destroy (image);
+	    return status;
+	}
+    }
+
     mask = _cairo_surface_create_similar_scratch (_dst,
 						  CAIRO_CONTENT_COLOR_ALPHA,
 						  extents->width,
@@ -315,6 +350,7 @@ traps_to_operand (void *_dst,
 					   extents->width, extents->height,
 					   0, 0);
     cairo_surface_destroy (image);
+
     if (unlikely (status))
 	goto error;
 
@@ -372,10 +408,10 @@ composite_traps (void			*_dst,
         goto FAIL;
 
     /* XXX clip */
-    _cairo_gl_composite_emit_rect (ctx,
-				   extents->x-dst_x, extents->y-dst_y,
-				   extents->x-dst_x+extents->width,
-				   extents->y-dst_y+extents->height, 0);
+    _cairo_gl_context_emit_rect (ctx,
+				 extents->x-dst_x, extents->y-dst_y,
+				 extents->x-dst_x+extents->width,
+				 extents->y-dst_y+extents->height);
     status = _cairo_gl_context_release (ctx, CAIRO_STATUS_SUCCESS);
 
 FAIL:
@@ -468,10 +504,10 @@ composite_tristrip (void		*_dst,
         goto FAIL;
 
     /* XXX clip */
-    _cairo_gl_composite_emit_rect (ctx,
-				   dst_x, dst_y,
-				   dst_x+extents->width,
-				   dst_y+extents->height, 0);
+    _cairo_gl_context_emit_rect (ctx,
+				 dst_x, dst_y,
+				 dst_x+extents->width,
+				 dst_y+extents->height);
     status = _cairo_gl_context_release (ctx, CAIRO_STATUS_SUCCESS);
 
 FAIL:

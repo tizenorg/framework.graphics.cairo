@@ -290,6 +290,7 @@ test_sources = \
 	scale-source-surface-paint.c			\
 	scaled-font-zero-matrix.c			\
 	stroke-ctm-caps.c				\
+	stroke-clipped.c			        \
 	stroke-image.c				        \
 	stroke-open-box.c				\
 	select-font-face.c				\
@@ -366,6 +367,7 @@ test_sources = \
 	world-map.c					\
 	white-in-noop.c					\
 	xcb-huge-image-shm.c				\
+	xcb-huge-subimage.c				\
 	xcb-stress-cache.c				\
 	xcb-snapshot-assert.c				\
 	xcomposite-projection.c				\

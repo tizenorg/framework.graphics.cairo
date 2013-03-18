@@ -54,7 +54,6 @@ _cairo_image_surface_set_parent (cairo_image_surface_t *image,
 				 cairo_surface_t *parent)
 {
     image->parent = parent;
-    cairo_surface_reference (parent);
 }
 
 static inline cairo_bool_t

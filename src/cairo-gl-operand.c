@@ -50,7 +50,6 @@
 #include "cairo-image-surface-private.h"
 #include "cairo-surface-backend-private.h"
 #include "cairo-surface-offset-private.h"
-#include "cairo-surface-snapshot-inline.h"
 #include "cairo-surface-subsurface-inline.h"
 #include "cairo-rtree-private.h"
 
@@ -131,6 +130,7 @@ _cairo_gl_copy_texture (cairo_gl_surface_t *dst,
     cairo_gl_dispatch_t *dispatch;
     cairo_gl_surface_t *cache_surface;
     cairo_gl_surface_t *target;
+    cairo_surface_pattern_t pattern;
 
     if (! _cairo_gl_surface_is_texture (image))
 	return CAIRO_INT_STATUS_UNSUPPORTED;
@@ -148,21 +148,31 @@ _cairo_gl_copy_texture (cairo_gl_surface_t *dst,
     if (replace)
 	_cairo_gl_composite_flush (ctx_out);
 
-    /* Bind framebuffer of source image. */
+    image->needs_to_cache = FALSE;
     dispatch = &ctx_out->dispatch;
     cache_surface = ctx_out->image_cache.surface;
     target = ctx_out->current_target;
 
-    _cairo_gl_ensure_framebuffer (ctx_out, image);
-    dispatch->BindFramebuffer (GL_FRAMEBUFFER, image->fb);
-    glBindTexture (ctx_out->tex_target, cache_surface->tex);
+    /* paint image to dst */
+    _cairo_pattern_init_for_surface (&pattern, &image->base);
+    cairo_matrix_init_translate (&pattern.base.matrix, -x, -y);
 
-    glCopyTexSubImage2D (ctx_out->tex_target, 0, x, y, 0, 0, width, height);
+    status = _cairo_surface_paint (&cache_surface->base,
+                                   CAIRO_OPERATOR_SOURCE,
+                                   &pattern.base, NULL);
+
+    _cairo_gl_composite_flush (ctx_out);
+    _cairo_pattern_fini (&pattern.base);
+
+    /* restore ctx status */
     dispatch->BindFramebuffer (GL_FRAMEBUFFER, target->fb);
     ctx_out->current_target = target;
     *ctx = ctx_out;
 
-    return CAIRO_INT_STATUS_SUCCESS;
+    if (unlikely (status))
+        return _cairo_gl_context_release (ctx_out, status);
+
+    return status;
 }
 
 static cairo_int_status_t
@@ -262,6 +272,7 @@ _cairo_gl_image_cache_add_image (cairo_gl_context_t *ctx,
 	(*image_node)->p1.y /= IMAGE_CACHE_HEIGHT;
 	(*image_node)->p2.y /= IMAGE_CACHE_HEIGHT;
     }
+    (*image_node)->user_data_removed = FALSE;
     image->content_changed = FALSE;
     /* Set user data. */
     status = cairo_surface_set_user_data (&image->base,
@@ -308,9 +319,7 @@ _cairo_gl_subsurface_clone_operand_init (cairo_gl_operand_t *operand,
 	    _cairo_gl_surface_create_scratch (ctx,
 					      sub->target->content,
 					      sub->extents.width,
-					      sub->extents.height,
-					      FALSE);
-
+					      sub->extents.height);
 	if (surface->base.status)
 	    return _cairo_gl_context_release (ctx, surface->base.status);
 
@@ -388,12 +397,8 @@ _cairo_gl_subsurface_operand_init (cairo_gl_operand_t *operand,
     }
 
     surface = (cairo_gl_surface_t *) sub->target;
-    if (surface->base.device &&
-        (surface->base.device != dst->base.device ||
-         (! surface->tex && ! surface->bounded_tex)))
-	return CAIRO_INT_STATUS_UNSUPPORTED;
-
-    if (! _cairo_gl_surface_is_texture (surface))
+    if (surface->base.device && (surface->base.device != dst->base.device ||
+         (! _cairo_gl_surface_is_texture (surface) && ! surface->bounded_tex)))
 	return CAIRO_INT_STATUS_UNSUPPORTED;
 
     status = _resolve_multisampling (surface);
@@ -478,33 +483,15 @@ _cairo_gl_surface_operand_init (cairo_gl_operand_t *operand,
 	if (_cairo_surface_is_subsurface (&surface->base))
 	    return _cairo_gl_subsurface_operand_init (operand, _src, dst,
 						      sample, extents);
-	else if (_cairo_surface_is_snapshot (src->surface)) {
-	    cairo_surface_snapshot_t *surface_snapshot;
-	    cairo_pattern_t *sub_pattern;
 
-	    surface_snapshot = (cairo_surface_snapshot_t *)src->surface;
-	    surface = (cairo_gl_surface_t *)surface_snapshot->target;
-	    if (surface->base.type != CAIRO_SURFACE_TYPE_GL)
-	        return CAIRO_INT_STATUS_UNSUPPORTED;
-
-	    if (_cairo_surface_is_subsurface (&surface->base)) {
-		sub_pattern = cairo_pattern_create_for_surface (&surface->base);
-		status = _cairo_gl_subsurface_operand_init (operand,
-							    sub_pattern,
-							    dst,
-							    sample,
-							    extents);
-		cairo_pattern_destroy (sub_pattern);
-		return status;
-	    }
-	}
-	else
-	    return CAIRO_INT_STATUS_UNSUPPORTED;
+	return CAIRO_INT_STATUS_UNSUPPORTED;
     }
 
-    if (surface->base.device &&
-        (surface->base.device != dst->base.device ||
-         (! surface->tex && ! surface->bounded_tex)))
+    if (surface->base.device && surface->base.device != dst->base.device)
+	return CAIRO_INT_STATUS_UNSUPPORTED;
+
+    if (surface->base.device && ! _cairo_gl_surface_is_texture (surface) &&
+	! surface->bounded_tex)
 	return CAIRO_INT_STATUS_UNSUPPORTED;
 
     status = _resolve_multisampling (surface);
@@ -568,7 +555,7 @@ _cairo_gl_pattern_texture_setup (cairo_gl_operand_t *operand,
     cairo_gl_context_t *ctx;
     cairo_image_surface_t *image;
     cairo_bool_t src_is_gl_surface = FALSE;
-    pixman_format_code_t pixman_format;
+    cairo_rectangle_int_t map_extents;
 
     if (_src->type == CAIRO_PATTERN_TYPE_SURFACE) {
 	cairo_surface_t* src_surface = ((cairo_surface_pattern_t *) _src)->surface;
@@ -582,31 +569,10 @@ _cairo_gl_pattern_texture_setup (cairo_gl_operand_t *operand,
     surface = (cairo_gl_surface_t *)
 	_cairo_gl_surface_create_scratch (ctx,
 					  CAIRO_CONTENT_COLOR_ALPHA,
-					  extents->width, extents->height,
-					  FALSE);
-
-    /* XXX: This is a hack for driver that does not support PBO, we
-       don't need an extra step of downloading newly created texture
-       to image, we can create image directly. */
-    if (! _cairo_is_little_endian ())
-	pixman_format = PIXMAN_r8g8b8a8;
-    else
-	pixman_format = PIXMAN_a8b8g8r8;
-    image = (cairo_image_surface_t*)
-	_cairo_image_surface_create_with_pixman_format (NULL,
-							pixman_format,
-							extents->width,
-							extents->height,
-							-1);
-    if (unlikely (image->base.status)) {
-	status = _cairo_gl_context_release (ctx, status);
-
-	/* The error status in the image is issue that caused the problem. */
-	status = image->base.status;
-
-	cairo_surface_destroy (&image->base);
-	goto fail;
-    }
+					  extents->width, extents->height);
+    map_extents = *extents;
+    map_extents.x = map_extents.y = 0;
+    image = _cairo_surface_map_to_image (&surface->base, &map_extents);
 
     /* If the pattern is a GL surface, it belongs to some other GL context,
        so we need to release this device while we paint it to the image. */
@@ -727,6 +693,8 @@ _cairo_gl_gradient_operand_init (cairo_gl_operand_t *operand,
 	cairo_matrix_t m;
 	cairo_circle_double_t circles[2];
 	double x0, y0, r0, dx, dy, dr;
+	double scale = 1.0;
+	cairo_radial_pattern_t *radial_pattern = (cairo_radial_pattern_t *)gradient;
 
 	/*
 	 * Some fragment shader implementations use half-floats to
@@ -740,18 +708,35 @@ _cairo_gl_gradient_operand_init (cairo_gl_operand_t *operand,
 	_cairo_gradient_pattern_fit_to_range (gradient, 8.,
 					      &operand->gradient.m, circles);
 
+	/*
+	 * Instead of using scaled data that might introducing rounding
+	 * errors, we use original data directly
+	 */
+	if (circles[0].center.x)
+		scale = radial_pattern->cd1.center.x / circles[0].center.x;
+	else if (circles[0].center.y)
+		scale = radial_pattern->cd1.center.y / circles[0].center.y;
+	else if (circles[0].radius)
+		scale = radial_pattern->cd1.radius / circles[0].radius;
+	else if (circles[1].center.x)
+		scale = radial_pattern->cd2.center.x / circles[1].center.x;
+	else if (circles[1].center.y)
+		scale = radial_pattern->cd2.center.y / circles[1].center.y;
+	else if (circles[1].radius)
+		scale = radial_pattern->cd2.radius / circles[1].radius;
+
 	x0 = circles[0].center.x;
 	y0 = circles[0].center.y;
 	r0 = circles[0].radius;
-	dx = circles[1].center.x - x0;
-	dy = circles[1].center.y - y0;
-	dr = circles[1].radius   - r0;
+	dx = radial_pattern->cd2.center.x - radial_pattern->cd1.center.x;
+	dy = radial_pattern->cd2.center.y - radial_pattern->cd1.center.y;
+	dr = radial_pattern->cd2.radius	  - radial_pattern->cd1.radius;
 
-	operand->gradient.a = dx * dx + dy * dy - dr * dr;
+	operand->gradient.a = (dx * dx + dy * dy - dr * dr)/(scale * scale);
 	operand->gradient.radius_0 = r0;
-	operand->gradient.circle_d.center.x = dx;
-	operand->gradient.circle_d.center.y = dy;
-	operand->gradient.circle_d.radius   = dr;
+	operand->gradient.circle_d.center.x = dx / scale;
+	operand->gradient.circle_d.center.y = dy / scale;
+	operand->gradient.circle_d.radius	= dr / scale;
 
 	if (operand->gradient.a == 0)
 	    operand->type = CAIRO_GL_OPERAND_RADIAL_GRADIENT_A0;
@@ -956,12 +941,7 @@ _cairo_gl_operand_bind_to_shader (cairo_gl_context_t *ctx,
                                   cairo_gl_operand_t *operand,
                                   cairo_gl_tex_t      tex_unit)
 {
-    char uniform_name[50];
-    char *custom_part;
-    static const char *names[] = { "source", "mask" };
-
-    strcpy (uniform_name, names[tex_unit]);
-    custom_part = uniform_name + strlen (names[tex_unit]);
+    cairo_gl_shader_slot_t slot = CAIRO_GL_SHADER_SLOT_SOURCE_CONSTANT;
 
     switch (operand->type) {
     default:
@@ -971,9 +951,9 @@ _cairo_gl_operand_bind_to_shader (cairo_gl_context_t *ctx,
         break;
     case CAIRO_GL_OPERAND_CONSTANT:
         if (!operand->use_color_attribute) {
-            strcpy (custom_part, "_constant");
+            slot = tex_unit == CAIRO_GL_TEX_SOURCE ? CAIRO_GL_SHADER_SLOT_SOURCE_CONSTANT : CAIRO_GL_SHADER_SLOT_MASK_CONSTANT;
             _cairo_gl_shader_bind_vec4 (ctx,
-                                        uniform_name,
+                                        slot,
                                         operand->constant.color[0],
                                         operand->constant.color[1],
                                         operand->constant.color[2],
@@ -982,22 +962,22 @@ _cairo_gl_operand_bind_to_shader (cairo_gl_context_t *ctx,
         break;
     case CAIRO_GL_OPERAND_RADIAL_GRADIENT_NONE:
     case CAIRO_GL_OPERAND_RADIAL_GRADIENT_EXT:
-	strcpy (custom_part, "_a");
+	slot = tex_unit == CAIRO_GL_TEX_SOURCE ? CAIRO_GL_SHADER_SLOT_SOURCE_A : CAIRO_GL_SHADER_SLOT_MASK_A;
 	_cairo_gl_shader_bind_float  (ctx,
-				      uniform_name,
+                      slot,
 				      operand->gradient.a);
 	/* fall through */
     case CAIRO_GL_OPERAND_RADIAL_GRADIENT_A0:
-	strcpy (custom_part, "_circle_d");
-	_cairo_gl_shader_bind_vec3   (ctx,
-				      uniform_name,
+	slot = tex_unit == CAIRO_GL_TEX_SOURCE ? CAIRO_GL_SHADER_SLOT_SOURCE_CIRCLE_D : CAIRO_GL_SHADER_SLOT_MASK_CIRCLE_D;
+	_cairo_gl_shader_bind_vec3 (ctx,
+                      slot,
 				      operand->gradient.circle_d.center.x,
 				      operand->gradient.circle_d.center.y,
 				      operand->gradient.circle_d.radius);
-	strcpy (custom_part, "_radius_0");
-	_cairo_gl_shader_bind_float  (ctx,
-				      uniform_name,
-				      operand->gradient.radius_0);
+	slot = tex_unit == CAIRO_GL_TEX_SOURCE ? CAIRO_GL_SHADER_SLOT_SOURCE_RADIUS_0 : CAIRO_GL_SHADER_SLOT_MASK_RADIUS_0;
+	_cairo_gl_shader_bind_float (ctx,
+					  slot,
+					  operand->gradient.radius_0);
         /* fall through */
     case CAIRO_GL_OPERAND_LINEAR_GRADIENT:
     case CAIRO_GL_OPERAND_TEXTURE:
@@ -1019,8 +999,8 @@ _cairo_gl_operand_bind_to_shader (cairo_gl_context_t *ctx,
 		width = operand->gradient.gradient->cache_entry.size,
 		height = 1;
 	    }
-	    strcpy (custom_part, "_texdims");
-	    _cairo_gl_shader_bind_vec2 (ctx, uniform_name, width, height);
+	    slot = tex_unit == CAIRO_GL_TEX_SOURCE ? CAIRO_GL_SHADER_SLOT_SOURCE_TEXDIMS : CAIRO_GL_SHADER_SLOT_MASK_TEXDIMS;
+	    _cairo_gl_shader_bind_vec2 (ctx, slot, width, height);
 	}
         break;
     }
@@ -1093,6 +1073,67 @@ _cairo_gl_operand_get_vertex_size (cairo_gl_operand_t *operand)
     case CAIRO_GL_OPERAND_RADIAL_GRADIENT_NONE:
     case CAIRO_GL_OPERAND_RADIAL_GRADIENT_EXT:
         return 2 * sizeof (GLfloat);
+    }
+}
+
+void
+_cairo_gl_operand_emit (cairo_gl_operand_t *operand,
+                        GLfloat ** vb,
+                        GLfloat x,
+                        GLfloat y)
+{
+    switch (operand->type) {
+    default:
+    case CAIRO_GL_OPERAND_COUNT:
+        ASSERT_NOT_REACHED;
+    case CAIRO_GL_OPERAND_NONE:
+	break;
+    case CAIRO_GL_OPERAND_CONSTANT: {
+        union fi {
+            float f;
+            GLbyte bytes[4];
+        } fi;
+        if (operand->use_color_attribute) {
+            fi.bytes[0] = operand->constant.color[0] * 255;
+            fi.bytes[1] = operand->constant.color[1] * 255;
+            fi.bytes[2] = operand->constant.color[2] * 255;
+            fi.bytes[3] = operand->constant.color[3] * 255;
+            *(*vb)++ = fi.f;
+        }
+        break;
+    }
+    case CAIRO_GL_OPERAND_LINEAR_GRADIENT:
+    case CAIRO_GL_OPERAND_RADIAL_GRADIENT_A0:
+    case CAIRO_GL_OPERAND_RADIAL_GRADIENT_NONE:
+    case CAIRO_GL_OPERAND_RADIAL_GRADIENT_EXT:
+        {
+	    double s = x;
+	    double t = y;
+
+	    cairo_matrix_transform_point (&operand->gradient.m, &s, &t);
+
+	    *(*vb)++ = s;
+	    *(*vb)++ = t;
+        }
+	break;
+    case CAIRO_GL_OPERAND_TEXTURE:
+        {
+            cairo_surface_attributes_t *src_attributes = &operand->texture.attributes;
+            double s = x;
+            double t = y;
+
+            cairo_matrix_transform_point (&src_attributes->matrix, &s, &t);
+            *(*vb)++ = s;
+            *(*vb)++ = t;
+
+	    if (operand->texture.use_atlas) {
+		*(*vb)++ = operand->texture.p1.x;
+		*(*vb)++ = operand->texture.p1.y;
+		*(*vb)++ = operand->texture.p2.x;
+		*(*vb)++ = operand->texture.p2.y;
+	    }
+        }
+        break;
     }
 }
 

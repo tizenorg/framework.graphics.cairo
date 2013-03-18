@@ -182,7 +182,6 @@ cairo_gl_context_get_glyph_cache (cairo_gl_context_t *ctx,
 {
     cairo_gl_glyph_cache_t *cache;
     cairo_content_t content;
-    cairo_bool_t true_alpha = FALSE;
 
     switch (format) {
     case CAIRO_FORMAT_RGB30:
@@ -196,7 +195,6 @@ cairo_gl_context_get_glyph_cache (cairo_gl_context_t *ctx,
     case CAIRO_FORMAT_A1:
 	cache = &ctx->glyph_cache[1];
         content = CAIRO_CONTENT_ALPHA;
-	true_alpha = TRUE;
 	break;
     default:
     case CAIRO_FORMAT_INVALID:
@@ -205,18 +203,16 @@ cairo_gl_context_get_glyph_cache (cairo_gl_context_t *ctx,
     }
 
     if (unlikely (cache->surface == NULL)) {
-        cairo_surface_t *surface;
+	cairo_surface_t *surface;
 
-	surface = _cairo_gl_surface_create_scratch (ctx,
-						    content,
-						    GLYPH_CACHE_WIDTH,
-						    GLYPH_CACHE_HEIGHT,
-						    true_alpha);
+	surface = _cairo_gl_surface_create_scratch_for_caching (ctx,
+							        content,
+							        GLYPH_CACHE_WIDTH,
+							        GLYPH_CACHE_HEIGHT);
+	if (unlikely (surface->status))
+	    return surface->status;
 
-        if (unlikely (surface->status))
-            return surface->status;
-
-        _cairo_surface_release_device_reference (surface);
+	_cairo_surface_release_device_reference (surface);
 
 	cache->surface = (cairo_gl_surface_t *)surface;
 	cache->surface->operand.texture.attributes.has_component_alpha =
@@ -240,6 +236,7 @@ render_glyphs (cairo_gl_surface_t *dst,
     cairo_format_t last_format = CAIRO_FORMAT_INVALID;
     cairo_gl_glyph_cache_t *cache = NULL;
     cairo_gl_context_t *ctx;
+    cairo_gl_emit_glyph_t emit;
     cairo_gl_composite_t setup;
     cairo_int_status_t status;
     int i = 0;
@@ -331,6 +328,8 @@ render_glyphs (cairo_gl_surface_t *dst,
             status = _cairo_gl_context_release (ctx, status);
 	    if (unlikely (status))
 		goto FINISH;
+
+	    emit = _cairo_gl_context_choose_emit_glyph (ctx);
 	}
 
 	if (scaled_glyph->dev_private_key != cache) {
@@ -366,10 +365,10 @@ render_glyphs (cairo_gl_surface_t *dst,
 	y2 = y1 + scaled_glyph->surface->height;
 
 	glyph = _cairo_gl_glyph_cache_lock (cache, scaled_glyph);
-	_cairo_gl_composite_emit_glyph (ctx,
-					x1, y1, x2, y2,
-                                        glyph->p1.x, glyph->p1.y,
-                                        glyph->p2.x, glyph->p2.y);
+	emit (ctx,
+	      x1, y1, x2, y2,
+	      glyph->p1.x, glyph->p1.y,
+	      glyph->p2.x, glyph->p2.y);
     }
 
     status = CAIRO_STATUS_SUCCESS;

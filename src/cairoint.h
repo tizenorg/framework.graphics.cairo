@@ -337,7 +337,7 @@ _cairo_rectangle_union (cairo_rectangle_int_t *dst,
 			const cairo_rectangle_int_t *src);
 
 cairo_private cairo_bool_t
-_cairo_box_intersects_line_segment (cairo_box_t *box,
+_cairo_box_intersects_line_segment (const cairo_box_t *box,
 	                            cairo_line_t *line) cairo_pure;
 
 cairo_private cairo_bool_t
@@ -1052,12 +1052,6 @@ _cairo_path_fixed_fill_to_traps (const cairo_path_fixed_t   *path,
 				 double			     tolerance,
 				 cairo_traps_t		    *traps);
 
-cairo_private cairo_status_t
-_cairo_path_fixed_fill_rectilinear_to_traps (const cairo_path_fixed_t *path,
-					     cairo_fill_rule_t	      fill_rule,
-					     cairo_antialias_t	      antialias,
-					     cairo_traps_t		  *traps);
-
 /* cairo-path-stroke.c */
 cairo_private cairo_status_t
 _cairo_path_fixed_stroke_to_polygon (const cairo_path_fixed_t	*path,
@@ -1097,6 +1091,14 @@ _cairo_path_fixed_stroke_to_traps (const cairo_path_fixed_t	*path,
 				   const cairo_matrix_t	*ctm_inverse,
 				   double		 tolerance,
 				   cairo_traps_t	*traps);
+
+cairo_private cairo_int_status_t
+_cairo_path_fixed_stroke_polygon_to_traps (const cairo_path_fixed_t	*path,
+					   const cairo_stroke_style_t	*stroke_style,
+					   const cairo_matrix_t	*ctm,
+					   const cairo_matrix_t	*ctm_inverse,
+					   double		 tolerance,
+					   cairo_traps_t	*traps);
 
 cairo_private cairo_status_t
 _cairo_path_fixed_stroke_to_shaper (cairo_path_fixed_t	*path,
@@ -1244,6 +1246,17 @@ _cairo_stroke_style_max_distance_from_path (const cairo_stroke_style_t *style,
 					    const cairo_path_fixed_t *path,
                                             const cairo_matrix_t *ctm,
                                             double *dx, double *dy);
+cairo_private void
+_cairo_stroke_style_max_line_distance_from_path (const cairo_stroke_style_t *style,
+						 const cairo_path_fixed_t *path,
+						 const cairo_matrix_t *ctm,
+						 double *dx, double *dy);
+
+cairo_private void
+_cairo_stroke_style_max_join_distance_from_path (const cairo_stroke_style_t *style,
+						 const cairo_path_fixed_t *path,
+						 const cairo_matrix_t *ctm,
+						 double *dx, double *dy);
 
 cairo_private double
 _cairo_stroke_style_dash_period (const cairo_stroke_style_t *style);
@@ -1915,6 +1928,7 @@ slim_hidden_proto (cairo_pattern_set_matrix);
 slim_hidden_proto (cairo_pop_group);
 slim_hidden_proto (cairo_push_group_with_content);
 slim_hidden_proto_no_warn (cairo_path_destroy);
+slim_hidden_proto (cairo_recording_surface_create);
 slim_hidden_proto (cairo_rel_line_to);
 slim_hidden_proto (cairo_restore);
 slim_hidden_proto (cairo_save);
@@ -2050,7 +2064,7 @@ cairo_private void
 _cairo_debug_print_clip (FILE *stream, const cairo_clip_t *clip);
 
 #if 0
-#define TRACE(x) fprintf x
+#define TRACE(x) fprintf (stderr, "%s: ", __FILE__), fprintf x
 #define TRACE_(x) x
 #else
 #define TRACE(x)

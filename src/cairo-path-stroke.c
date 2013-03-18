@@ -52,6 +52,7 @@ typedef struct cairo_stroker {
 
     const cairo_matrix_t *ctm;
     const cairo_matrix_t *ctm_inverse;
+    double half_line_width;
     double tolerance;
     double ctm_determinant;
     cairo_bool_t ctm_det_positive;
@@ -87,6 +88,46 @@ typedef struct cairo_stroker {
     cairo_bool_t has_bounds;
     cairo_box_t bounds;
 } cairo_stroker_t;
+
+static cairo_bool_t
+_cairo_stroke_segment_intersect (cairo_point_t *p1, cairo_point_t *p2,
+                 cairo_point_t *p3, cairo_point_t *p4,
+                                 cairo_point_t *p)
+{
+    double x1, y1, x2, y2, x3, y3, x4, y4;
+    double pre, post;
+    double x, y, d;
+
+    x1 = _cairo_fixed_to_double (p1->x);
+    y1 = _cairo_fixed_to_double (p1->y);
+    x2 = _cairo_fixed_to_double (p2->x);
+    y2 = _cairo_fixed_to_double (p2->y);
+    x3 = _cairo_fixed_to_double (p3->x);
+    y3 = _cairo_fixed_to_double (p3->y);
+    x4 = _cairo_fixed_to_double (p4->x);
+    y4 = _cairo_fixed_to_double (p4->y);
+
+    d = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+    if (d == 0)
+        return FALSE;
+
+    pre = x1 * y2 - y1 * x2;
+    post = x3 * y4 - y3 * x4;
+    x = (pre * (x3 - x4) - (x1 - x2) * post) / d;
+    y = (pre * (y3 - y4) - (y1 - y2) * post) / d;
+
+    /* check if x, y are within both segments */
+    if (x < MIN (x1, x2) || x > MAX (x1, x2) ||
+        x < MIN (x3, x4) || x > MAX (x3, x4))
+    return FALSE;
+    if (y < MIN (y1, y2) || y > MAX (y1, y2) ||
+        y < MIN (y1, y2) || y > MAX (y3, y4))
+    return FALSE;
+
+    p->x = _cairo_fixed_from_double (x);
+    p->y = _cairo_fixed_from_double (y);
+    return TRUE;
+}
 
 static void
 _cairo_stroker_limit (cairo_stroker_t *stroker,
@@ -134,13 +175,13 @@ _cairo_stroker_init (cairo_stroker_t		*stroker,
     stroker->ctm = ctm;
     stroker->ctm_inverse = ctm_inverse;
     stroker->tolerance = tolerance;
+    stroker->half_line_width = stroke_style->line_width / 2.0;
 
     stroker->ctm_determinant = _cairo_matrix_compute_determinant (stroker->ctm);
     stroker->ctm_det_positive = stroker->ctm_determinant >= 0.0;
 
     status = _cairo_pen_init (&stroker->pen,
-		              stroke_style->line_width / 2.0,
-			      tolerance, ctm);
+			      stroker->half_line_width, tolerance, ctm);
     if (unlikely (status))
 	return status;
 
@@ -637,8 +678,8 @@ _cairo_stroker_add_cap (cairo_stroker_t *stroker,
 
 	dx = f->usr_vector.x;
 	dy = f->usr_vector.y;
-	dx *= stroker->style.line_width / 2.0;
-	dy *= stroker->style.line_width / 2.0;
+	dx *= stroker->half_line_width;
+	dy *= stroker->half_line_width;
 	cairo_matrix_transform_distance (stroker->ctm, &dx, &dy);
 	fvector.dx = _cairo_fixed_from_double (dx);
 	fvector.dy = _cairo_fixed_from_double (dy);
@@ -779,13 +820,13 @@ _compute_face (const cairo_point_t *point,
      */
     if (stroker->ctm_det_positive)
     {
-	face_dx = - slope_dy * (stroker->style.line_width / 2.0);
-	face_dy = slope_dx * (stroker->style.line_width / 2.0);
+	face_dx = - slope_dy * stroker->half_line_width;
+	face_dy = slope_dx * stroker->half_line_width;
     }
     else
     {
-	face_dx = slope_dy * (stroker->style.line_width / 2.0);
-	face_dy = - slope_dx * (stroker->style.line_width / 2.0);
+	face_dx = slope_dy * stroker->half_line_width;
+	face_dy = - slope_dx * stroker->half_line_width;
     }
 
     /* back to device space */
@@ -990,6 +1031,7 @@ _cairo_stroker_spline_to (void *closure,
     cairo_stroke_face_t new_face;
     double slope_dx, slope_dy;
     cairo_point_t points[3];
+    cairo_point_t intersect_point;
 
     stroker->has_initial_sub_path = TRUE;
 
@@ -1009,8 +1051,24 @@ _cairo_stroker_spline_to (void *closure,
 		   stroker, &new_face);
 
     assert(stroker->has_current_face);
+
+    if (_cairo_stroke_segment_intersect (&stroker->current_face.cw,
+                     &stroker->current_face.ccw,
+                                         &new_face.cw,
+                                         &new_face.ccw,
+                                         &intersect_point)) {
+    points[0] = stroker->current_face.ccw;
+    points[1] = new_face.ccw;
+    points[2] = intersect_point;
+    stroker->add_triangle (stroker->closure, points);
+
     points[0] = stroker->current_face.cw;
-    points[1] = stroker->current_face.ccw;
+    points[1] = new_face.cw;
+    stroker->add_triangle (stroker->closure, points);
+    }
+    else {
+    points[0] = stroker->current_face.ccw;
+    points[1] = stroker->current_face.cw;
     points[2] = new_face.cw;
     stroker->add_triangle (stroker->closure, points);
 
@@ -1018,6 +1076,7 @@ _cairo_stroker_spline_to (void *closure,
     points[1] = new_face.cw;
     points[2] = new_face.ccw;
     stroker->add_triangle (stroker->closure, points);
+    }
 
     stroker->current_face = new_face;
     stroker->has_current_face = TRUE;
@@ -1396,12 +1455,12 @@ BAIL:
 }
 
 cairo_int_status_t
-_cairo_path_fixed_stroke_to_traps (const cairo_path_fixed_t	*path,
-				   const cairo_stroke_style_t	*stroke_style,
-				   const cairo_matrix_t	*ctm,
-				   const cairo_matrix_t	*ctm_inverse,
-				   double		 tolerance,
-				   cairo_traps_t	*traps)
+_cairo_path_fixed_stroke_polygon_to_traps (const cairo_path_fixed_t	*path,
+                                           const cairo_stroke_style_t	*stroke_style,
+                                           const cairo_matrix_t	*ctm,
+                                           const cairo_matrix_t	*ctm_inverse,
+                                           double		 tolerance,
+                                           cairo_traps_t	*traps)
 {
     cairo_int_status_t status;
     cairo_polygon_t polygon;

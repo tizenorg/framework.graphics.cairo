@@ -149,23 +149,28 @@ _cairo_default_context_push_group (void *abstract_cr, cairo_content_t content)
     } else {
 	cairo_surface_t *parent_surface;
 	cairo_rectangle_int_t extents;
-	cairo_bool_t is_empty;
+	cairo_bool_t bounded, is_empty;
 
 	parent_surface = _cairo_gstate_get_target (cr->gstate);
 
 	/* Get the extents that we'll use in creating our new group surface */
-	is_empty = _cairo_surface_get_extents (parent_surface, &extents);
+	bounded = _cairo_surface_get_extents (parent_surface, &extents);
 	if (clip)
+	    /* XXX: This assignment just fixes a compiler warning? */
 	    is_empty = _cairo_rectangle_intersect (&extents,
 						   _cairo_clip_get_extents (clip));
 
-	/* XXX unbounded surface creation */
-
-	group_surface = _cairo_surface_create_similar_solid (parent_surface,
-							     content,
-							     extents.width,
-							     extents.height,
-							     CAIRO_COLOR_TRANSPARENT);
+	if (!bounded) {
+	    /* XXX: Generic solution? */
+	    group_surface = cairo_recording_surface_create (content, NULL);
+	    extents.x = extents.y = 0;
+	} else {
+	    group_surface = _cairo_surface_create_similar_solid (parent_surface,
+								 content,
+								 extents.width,
+								 extents.height,
+								 CAIRO_COLOR_TRANSPARENT);
+	}
 	status = group_surface->status;
 	if (unlikely (status))
 	    goto bail;
@@ -294,8 +299,11 @@ _cairo_default_context_set_source_rgba (void *abstract_cr, double red, double gr
     _cairo_default_context_set_source (cr, (cairo_pattern_t *) &_cairo_pattern_black);
 
     pattern = cairo_pattern_create_rgba (red, green, blue, alpha);
-    if (unlikely (pattern->status))
-	return pattern->status;
+    if (unlikely (pattern->status)) {
+        status = pattern->status;
+        cairo_pattern_destroy (pattern);
+        return pattern->status;
+    }
 
     status = _cairo_default_context_set_source (cr, pattern);
     cairo_pattern_destroy (pattern);
@@ -318,8 +326,11 @@ _cairo_default_context_set_source_surface (void *abstract_cr,
     _cairo_default_context_set_source (cr, (cairo_pattern_t *) &_cairo_pattern_black);
 
     pattern = cairo_pattern_create_for_surface (surface);
-    if (unlikely (pattern->status))
-	return pattern->status;
+    if (unlikely (pattern->status)) {
+        status = pattern->status;
+        cairo_pattern_destroy (pattern);
+        return status;
+    }
 
     cairo_matrix_init_translate (&matrix, -x, -y);
     cairo_pattern_set_matrix (pattern, &matrix);
