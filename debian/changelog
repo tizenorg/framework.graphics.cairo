@@ -1,3 +1,18 @@
+cairo (1.12.12-slp2+3) unstable; urgency=low
+
+  * Fix bugs in w3c conformance test
+  * Git: framework/graphics/cairo
+
+ -- Dongyeon Kim <dy5.kim@samsung.com>  Tue, 26 Mar 2013 15:09:23 +0900
+
+cairo (1.12.12-slp2+2) unstable; urgency=low
+
+  * Fix the bug regarding span_renderer (WEB-1460)
+  * Git: framework/graphics/cairo
+  * Tag: cairo_1.12.12+2
+
+ -- Seongwon Cho <seongwon1.cho@samsung.com>  Wed, 20 Mar 2013 16:36:26 +0900
+
 cairo (1.12.8-slp2+3) unstable; urgency=low
 
   * Remove gobject, script-interpreter libraries from package

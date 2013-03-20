@@ -799,7 +799,7 @@ _cairo_gl_msaa_compositor_stroke (const cairo_compositor_t	*compositor,
 
 	_cairo_traps_init (&traps);
 
-	status = _cairo_path_fixed_stroke_to_traps (path, style,
+	status = _cairo_path_fixed_stroke_polygon_to_traps (path, style,
 						    ctm, ctm_inverse,
 						    tolerance, &traps);
 	if (unlikely (status)) {

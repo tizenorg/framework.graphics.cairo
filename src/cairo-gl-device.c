@@ -62,7 +62,7 @@ _cairo_gl_image_cache_init (cairo_gl_context_t *ctx)
 
     _cairo_surface_release_device_reference (cache_surface);
     ctx->image_cache.surface = (cairo_gl_surface_t *)cache_surface;
-
+    ctx->image_cache.surface->supports_msaa = FALSE;
 
     return CAIRO_INT_STATUS_SUCCESS;
 }
