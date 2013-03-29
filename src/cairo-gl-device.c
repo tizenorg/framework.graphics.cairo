@@ -777,6 +777,8 @@ _cairo_gl_context_set_destination (cairo_gl_context_t *ctx,
 #endif
     }
 
+    glDisable (GL_DITHER);
+
     if (ctx->states_cache.viewport_box.width != surface->width ||
 	ctx->states_cache.viewport_box.height != surface->height) {
 	glViewport (0, 0, surface->width, surface->height);
@@ -823,7 +825,4 @@ void _cairo_gl_context_reset (cairo_gl_context_t *ctx)
     ctx->states_cache.active_texture = CAIRO_GL_ENUM_UNINITIALIZED;
 
     ctx->states_cache.depth_mask = FALSE;
-
-    /* FIXME:  this is hack to fix mali driver */
-    glDisable (GL_DITHER);
 }

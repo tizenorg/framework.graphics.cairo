@@ -131,6 +131,8 @@ _cairo_gl_copy_texture (cairo_gl_surface_t *dst,
     cairo_gl_surface_t *cache_surface;
     cairo_gl_surface_t *target;
     cairo_surface_pattern_t pattern;
+    cairo_rectangle_int_t r;
+    cairo_clip_t *clip;
 
     if (! _cairo_gl_surface_is_texture (image))
 	return CAIRO_INT_STATUS_UNSUPPORTED;
@@ -154,18 +156,21 @@ _cairo_gl_copy_texture (cairo_gl_surface_t *dst,
     target = ctx_out->current_target;
 
     /* paint image to dst */
+    r.x = x; r.y = y; r.width = width; r.height = height;
+    clip = _cairo_clip_intersect_rectangle (NULL, &r);
     _cairo_pattern_init_for_surface (&pattern, &image->base);
     cairo_matrix_init_translate (&pattern.base.matrix, -x, -y);
 
     status = _cairo_surface_paint (&cache_surface->base,
                                    CAIRO_OPERATOR_SOURCE,
-                                   &pattern.base, NULL);
+                                   &pattern.base, clip);
 
     _cairo_gl_composite_flush (ctx_out);
     _cairo_pattern_fini (&pattern.base);
+    image->needs_to_cache = TRUE;
 
     /* restore ctx status */
-    dispatch->BindFramebuffer (GL_FRAMEBUFFER, target->fb);
+    _cairo_gl_context_set_destination (ctx_out, target, TRUE);
     ctx_out->current_target = target;
     *ctx = ctx_out;
 
@@ -1034,7 +1039,8 @@ _cairo_gl_operand_needs_setup (cairo_gl_operand_t *dest,
         return dest->texture.surface != source->texture.surface ||
                dest->texture.attributes.extend != source->texture.attributes.extend ||
                dest->texture.attributes.filter != source->texture.attributes.filter ||
-               dest->texture.attributes.has_component_alpha != source->texture.attributes.has_component_alpha;
+               dest->texture.attributes.has_component_alpha != source->texture.attributes.has_component_alpha ||
+               (dest->texture.use_atlas && source->texture.use_atlas);
     case CAIRO_GL_OPERAND_LINEAR_GRADIENT:
     case CAIRO_GL_OPERAND_RADIAL_GRADIENT_A0:
     case CAIRO_GL_OPERAND_RADIAL_GRADIENT_NONE:

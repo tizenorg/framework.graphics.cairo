@@ -99,10 +99,10 @@
  * (especially on embedded devices). */
 #define CAIRO_GL_VBO_SIZE (16*1024)
 
-#define IMAGE_CACHE_WIDTH 2048
-#define IMAGE_CACHE_HEIGHT 2048
+#define IMAGE_CACHE_WIDTH 4096
+#define IMAGE_CACHE_HEIGHT 4096
 #define IMAGE_CACHE_MIN_SIZE 1
-#define IMAGE_CACHE_MAX_SIZE 256
+#define IMAGE_CACHE_MAX_SIZE 512
 
 typedef struct _cairo_gl_surface cairo_gl_surface_t;
 
@@ -576,7 +576,8 @@ _cairo_gl_surface_draw_image (cairo_gl_surface_t *dst,
 			      cairo_image_surface_t *src,
 			      int src_x, int src_y,
 			      int width, int height,
-			      int dst_x, int dst_y);
+			      int dst_x, int dst_y,
+			      cairo_bool_t force_flush);
 
 static cairo_always_inline cairo_bool_t
 _cairo_gl_device_has_glsl (cairo_device_t *device)
