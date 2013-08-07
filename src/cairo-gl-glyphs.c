@@ -517,8 +517,20 @@ _cairo_gl_composite_glyphs (void			*_dst,
 			    int				 dst_y,
 			    cairo_composite_glyphs_info_t *info)
 {
-    return _cairo_gl_composite_glyphs_with_clip (_dst, op, _src, src_x, src_y,
-						 dst_x, dst_y, info, NULL, FALSE);
+    cairo_int_status_t status;
+
+#if CAIRO_HAS_TG_SURFACE
+    _cairo_scaled_font_freeze_cache(info->font);
+#endif
+
+    status = _cairo_gl_composite_glyphs_with_clip (_dst, op, _src, src_x, src_y,
+						   dst_x, dst_y, info, NULL, FALSE);
+
+#if CAIRO_HAS_TG_SURFACE
+    _cairo_scaled_font_thaw_cache(info->font);
+#endif
+
+    return status;
 }
 
 void

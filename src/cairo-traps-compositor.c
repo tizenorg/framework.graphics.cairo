@@ -2293,6 +2293,10 @@ _cairo_traps_compositor_glyphs (const cairo_compositor_t	*_compositor,
     if (unlikely (status))
 	return status;
 
+#if ! CAIRO_HAS_TG_SURFACE
+    _cairo_scaled_font_freeze_cache (scaled_font);
+#endif
+
     status = compositor->check_composite_glyphs (extents,
 						 scaled_font, glyphs,
 						 &num_glyphs);
@@ -2317,6 +2321,10 @@ _cairo_traps_compositor_glyphs (const cairo_compositor_t	*_compositor,
 				     need_bounded_clip (extents) |
 				     flags);
     }
+
+#if ! CAIRO_HAS_TG_SURFACE
+    _cairo_scaled_font_thaw_cache (scaled_font);
+#endif
 
     return status;
 }

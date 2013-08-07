@@ -394,6 +394,9 @@ gl_surface_test_sources = \
 	gl-device-release.c \
 	gl-surface-source.c
 
+tg_surface_test_sources = \
+	tg-surface-source.c
+
 quartz_surface_test_sources = quartz-surface-source.c
 
 pdf_surface_test_sources = \

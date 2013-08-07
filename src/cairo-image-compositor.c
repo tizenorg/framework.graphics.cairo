@@ -52,7 +52,7 @@
 #include "cairo-traps-private.h"
 #include "cairo-tristrip-private.h"
 
-#if CAIRO_ENABLE_PER_THREAD_GLYPH_CACHE
+#if CAIRO_HAS_TG_SURFACE
 #include "cairo-thread-local-private.h"
 #endif
 
@@ -764,7 +764,7 @@ check_composite_glyphs (const cairo_composite_rectangles_t *extents,
 }
 
 #if HAS_PIXMAN_GLYPHS
-#if CAIRO_ENABLE_PER_THREAD_GLYPH_CACHE
+#if CAIRO_HAS_TG_SURFACE
 CAIRO_DEFINE_THREAD_LOCAL (pixman_glyph_cache_t *, per_thread_glyph_cache);
 #else
 static pixman_glyph_cache_t *global_glyph_cache;
@@ -775,7 +775,7 @@ get_glyph_cache (void)
 {
     pixman_glyph_cache_t **glyph_cache = NULL;
 
-#if CAIRO_ENABLE_PER_THREAD_GLYPH_CACHE
+#if CAIRO_HAS_TG_SURFACE
     glyph_cache = CAIRO_GET_THREAD_LOCAL (per_thread_glyph_cache);
 #else
     glyph_cache = &global_glyph_cache;
@@ -793,7 +793,7 @@ _cairo_image_scaled_glyph_fini (cairo_scaled_font_t *scaled_font,
 {
     pixman_glyph_cache_t *glyph_cache = NULL;
 
-#if CAIRO_ENABLE_PER_THREAD_GLYPH_CACHE
+#if CAIRO_HAS_TG_SURFACE
     glyph_cache = *CAIRO_GET_THREAD_LOCAL (per_thread_glyph_cache);
 #else
     glyph_cache = global_glyph_cache;
@@ -806,7 +806,7 @@ _cairo_image_scaled_glyph_fini (cairo_scaled_font_t *scaled_font,
 	    (void *)_cairo_scaled_glyph_index (scaled_glyph));
     }
 
-#if ! CAIRO_ENABLE_PER_THREAD_GLYPH_CACHE
+#if ! CAIRO_HAS_TG_SURFACE
     CAIRO_MUTEX_UNLOCK (_cairo_glyph_cache_mutex);
 #endif
 }
@@ -830,7 +830,7 @@ composite_glyphs (void				*_dst,
 
     TRACE ((stderr, "%s\n", __FUNCTION__));
 
-#if ! CAIRO_ENABLE_PER_THREAD_GLYPH_CACHE
+#if ! CAIRO_HAS_TG_SURFACE
     CAIRO_MUTEX_LOCK (_cairo_glyph_cache_mutex);
 #endif
 
@@ -860,24 +860,29 @@ composite_glyphs (void				*_dst,
 	    cairo_scaled_glyph_t *scaled_glyph;
 	    cairo_image_surface_t *glyph_surface;
 
-#if ! CAIRO_ENABLE_PER_THREAD_GLYPH_CACHE
+#if ! CAIRO_HAS_TG_SURFACE
 	    /* This call can actually end up recursing, so we have to
 	     * drop the mutex around it.
 	     */
 	    CAIRO_MUTEX_UNLOCK (_cairo_glyph_cache_mutex);
-#endif
+#else
 	    _cairo_scaled_font_freeze_cache (info->font);
+	    CAIRO_MUTEX_LOCK (_cairo_tg_scaled_glyph_mutex);
+#endif
 
 	    status = _cairo_scaled_glyph_lookup (info->font, index,
 						 CAIRO_SCALED_GLYPH_INFO_SURFACE,
 						 &scaled_glyph);
 
-#if ! CAIRO_ENABLE_PER_THREAD_GLYPH_CACHE
+#if ! CAIRO_HAS_TG_SURFACE
 	    CAIRO_MUTEX_LOCK (_cairo_glyph_cache_mutex);
 #endif
 
 	    if (unlikely (status)) {
+#if CAIRO_HAS_TG_SURFACE
+		CAIRO_MUTEX_UNLOCK (_cairo_tg_scaled_glyph_mutex);
 		_cairo_scaled_font_thaw_cache (info->font);
+#endif
 		goto out_thaw;
 	    }
 
@@ -887,7 +892,10 @@ composite_glyphs (void				*_dst,
 					       glyph_surface->base.device_transform.y0,
 					       glyph_surface->pixman_image);
 
+#if CAIRO_HAS_TG_SURFACE
+	    CAIRO_MUTEX_UNLOCK (_cairo_tg_scaled_glyph_mutex);
 	    _cairo_scaled_font_thaw_cache (info->font);
+#endif
 
 	    if (unlikely (!glyph)) {
 		status = _cairo_error (CAIRO_STATUS_NO_MEMORY);
@@ -931,7 +939,7 @@ out_thaw:
 	free(pglyphs);
 
 out_unlock:
-#if ! CAIRO_ENABLE_PER_THREAD_GLYPH_CACHE
+#if ! CAIRO_HAS_TG_SURFACE
     CAIRO_MUTEX_UNLOCK (_cairo_glyph_cache_mutex);
 #endif
 
@@ -1172,7 +1180,10 @@ composite_glyphs (void				*_dst,
 
     TRACE ((stderr, "%s\n", __FUNCTION__));
 
+#if CAIRO_HAS_TG_SURFACE
     _cairo_scaled_font_freeze_cache (info->font);
+    CAIRO_MUTEX_LOCK (_cairo_tg_scaled_glyph_mutex);
+#endif
 
     if (info->num_glyphs == 1) {
 	status = composite_one_glyph(_dst, op, _src, src_x, src_y, dst_x, dst_y, info);
@@ -1231,7 +1242,10 @@ composite_glyphs (void				*_dst,
     }
 
 out_thaw:
+#if CAIRO_HAS_TG_SURFACE
     _cairo_scaled_font_thaw_cache (info->font);
+    CAIRO_MUTEX_UNLOCK (_cairo_tg_scaled_glyph_mutex);
+#endif
 
     return status;
 }

@@ -21,6 +21,24 @@ enabled_cairo_sources = $(cairo_sources)
 all_cairo_pkgconf = cairo.pc
 enabled_cairo_pkgconf = cairo.pc
 
+all_cairo_private += $(cairo_tls_private) $(cairo_tls_headers)
+all_cairo_cxx_sources += $(cairo_tls_cxx_sources)
+all_cairo_sources += $(cairo_tls_sources)
+ifeq ($(CAIRO_HAS_TLS),1)
+enabled_cairo_private += $(cairo_tls_private) $(cairo_tls_headers)
+enabled_cairo_cxx_sources += $(cairo_tls_cxx_sources)
+enabled_cairo_sources += $(cairo_tls_sources)
+endif
+
+all_cairo_private += $(cairo_pthread_setspecific_private) $(cairo_pthread_setspecific_headers)
+all_cairo_cxx_sources += $(cairo_pthread_setspecific_cxx_sources)
+all_cairo_sources += $(cairo_pthread_setspecific_sources)
+ifeq ($(CAIRO_HAS_PTHREAD_SETSPECIFIC),1)
+enabled_cairo_private += $(cairo_pthread_setspecific_private) $(cairo_pthread_setspecific_headers)
+enabled_cairo_cxx_sources += $(cairo_pthread_setspecific_cxx_sources)
+enabled_cairo_sources += $(cairo_pthread_setspecific_sources)
+endif
+
 supported_cairo_headers += $(cairo_xlib_headers)
 all_cairo_headers += $(cairo_xlib_headers)
 all_cairo_private += $(cairo_xlib_private)
@@ -357,6 +375,22 @@ ifeq ($(CAIRO_HAS_DIRECTFB_SURFACE),1)
 enabled_cairo_pkgconf += cairo-directfb.pc
 endif
 
+unsupported_cairo_headers += $(cairo_tg_headers)
+all_cairo_headers += $(cairo_tg_headers)
+all_cairo_private += $(cairo_tg_private)
+all_cairo_cxx_sources += $(cairo_tg_cxx_sources)
+all_cairo_sources += $(cairo_tg_sources)
+ifeq ($(CAIRO_HAS_TG_SURFACE),1)
+enabled_cairo_headers += $(cairo_tg_headers)
+enabled_cairo_private += $(cairo_tg_private)
+enabled_cairo_cxx_sources += $(cairo_tg_cxx_sources)
+enabled_cairo_sources += $(cairo_tg_sources)
+endif
+all_cairo_pkgconf += cairo-tg.pc
+ifeq ($(CAIRO_HAS_TG_SURFACE),1)
+enabled_cairo_pkgconf += cairo-tg.pc
+endif
+
 unsupported_cairo_headers += $(cairo_vg_headers)
 all_cairo_headers += $(cairo_vg_headers)
 all_cairo_private += $(cairo_vg_private)
@@ -607,6 +641,15 @@ enabled_cairo_headers += $(cairo_user_headers)
 enabled_cairo_private += $(cairo_user_private)
 enabled_cairo_cxx_sources += $(cairo_user_cxx_sources)
 enabled_cairo_sources += $(cairo_user_sources)
+
+all_cairo_private += $(cairo_openmp_private) $(cairo_openmp_headers)
+all_cairo_cxx_sources += $(cairo_openmp_cxx_sources)
+all_cairo_sources += $(cairo_openmp_sources)
+ifeq ($(CAIRO_HAS_OPENMP),1)
+enabled_cairo_private += $(cairo_openmp_private) $(cairo_openmp_headers)
+enabled_cairo_cxx_sources += $(cairo_openmp_cxx_sources)
+enabled_cairo_sources += $(cairo_openmp_sources)
+endif
 
 all_cairo_private += $(cairo_pthread_private) $(cairo_pthread_headers)
 all_cairo_cxx_sources += $(cairo_pthread_cxx_sources)

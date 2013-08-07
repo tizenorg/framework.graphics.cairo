@@ -1597,6 +1597,11 @@ composite_glyphs (void				*surface,
 
     op = _render_operator (op),
     _cairo_xlib_surface_ensure_picture (dst);
+
+#if CAIRO_HAS_TG_SURFACE
+    _cairo_scaled_font_freeze_cache(info->font);
+#endif
+
     for (i = 0; i < num_glyphs; i++) {
 	int this_x, this_y;
 	int old_width;
@@ -1606,7 +1611,7 @@ composite_glyphs (void				*surface,
 					     CAIRO_SCALED_GLYPH_INFO_METRICS,
 					     &glyph);
 	if (unlikely (status))
-	    return status;
+	    goto done;
 
 	this_x = _cairo_lround (glyphs[i].d.x);
 	this_y = _cairo_lround (glyphs[i].d.y);
@@ -1615,7 +1620,7 @@ composite_glyphs (void				*surface,
 	if (glyph->dev_private_key != display) {
 	    status = _cairo_xlib_surface_add_glyph (display, info->font, &glyph);
 	    if (unlikely (status))
-		return status;
+		goto done;
 	}
 
 	this_glyphset_info = glyph->dev_private;
@@ -1667,7 +1672,7 @@ composite_glyphs (void				*surface,
 					 op, src, src_x, src_y,
 					 num_elts, old_width, glyphset);
 	    if (unlikely (status))
-		return status;
+		goto done;
 
 	    glyphs += i;
 	    num_glyphs -= i;
@@ -1711,6 +1716,11 @@ composite_glyphs (void				*surface,
 				     op, src, src_x, src_y,
 				     num_elts, width, glyphset);
     }
+
+done:
+#if CAIRO_HAS_TG_SURFACE
+    _cairo_scaled_font_thaw_cache(info->font);
+#endif
 
     return status;
 }

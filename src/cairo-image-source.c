@@ -55,6 +55,10 @@
 #include "cairo-surface-snapshot-inline.h"
 #include "cairo-surface-subsurface-private.h"
 
+#if CAIRO_HAS_TG_SURFACE
+#include "cairo-tg-private.h"
+#endif
+
 #define PIXMAN_MAX_INT ((pixman_fixed_1 >> 1) - pixman_fixed_e) /* need to ensure deltas also fit */
 
 #if CAIRO_NO_MUTEX
@@ -439,6 +443,51 @@ _defer_free_cleanup (pixman_image_t *pixman_image,
     cairo_surface_destroy (closure);
 }
 
+typedef struct _cairo_image_buffer
+{
+    cairo_format_t	    format;
+    unsigned char	    *data;
+    int			    width;
+    int			    height;
+    int			    stride;
+    pixman_image_t	    *pixman_image;
+    pixman_format_code_t    pixman_format;
+} cairo_image_buffer_t;
+
+static inline void
+_get_image_buffer (cairo_surface_t *surface, cairo_image_buffer_t *image_buffer)
+{
+    if (surface->backend->type == CAIRO_SURFACE_TYPE_IMAGE)
+    {
+	cairo_image_surface_t *image = (cairo_image_surface_t *)surface;
+
+	image_buffer->format = image->format;
+	image_buffer->data = image->data;
+	image_buffer->width = image->width;
+	image_buffer->height = image->height;
+	image_buffer->stride = image->stride;
+	image_buffer->pixman_image = image->pixman_image;
+	image_buffer->pixman_format = image->pixman_format;
+    }
+#if CAIRO_HAS_TG_SURFACE
+    else if (surface->backend->type == CAIRO_SURFACE_TYPE_TG)
+    {
+	cairo_tg_surface_t *tg = (cairo_tg_surface_t *)surface;
+
+	image_buffer->format = tg->format;
+	image_buffer->data = tg->data;
+	image_buffer->width = tg->width;
+	image_buffer->height = tg->height;
+	image_buffer->stride = tg->stride;
+	image_buffer->pixman_image = ((cairo_image_surface_t *)(tg->image_surface))->pixman_image;
+	image_buffer->pixman_format = ((cairo_image_surface_t *)(tg->image_surface))->pixman_format;
+
+	/* flush the journal to make the memory image_buffer up-to-date. */
+	cairo_surface_flush (surface);
+    }
+#endif
+}
+
 static uint16_t
 expand_channel (uint16_t v, uint32_t bits)
 {
@@ -452,25 +501,25 @@ expand_channel (uint16_t v, uint32_t bits)
 }
 
 static pixman_image_t *
-_pixel_to_solid (cairo_image_surface_t *image, int x, int y)
+_pixel_to_solid (const cairo_image_buffer_t *image_buffer, int x, int y)
 {
     uint32_t pixel;
     pixman_color_t color;
 
     TRACE ((stderr, "%s\n", __FUNCTION__));
 
-    switch (image->format) {
+    switch (image_buffer->format) {
     default:
     case CAIRO_FORMAT_INVALID:
 	ASSERT_NOT_REACHED;
 	return NULL;
 
     case CAIRO_FORMAT_A1:
-	pixel = *(uint8_t *) (image->data + y * image->stride + x/8);
+	pixel = *(uint8_t *) (image_buffer->data + y * image_buffer->stride + x/8);
 	return pixel & (1 << (x&7)) ? _pixman_black_image () : _pixman_transparent_image ();
 
     case CAIRO_FORMAT_A8:
-	color.alpha = *(uint8_t *) (image->data + y * image->stride + x);
+	color.alpha = *(uint8_t *) (image_buffer->data + y * image_buffer->stride + x);
 	color.alpha |= color.alpha << 8;
 	if (color.alpha == 0)
 	    return _pixman_transparent_image ();
@@ -481,7 +530,7 @@ _pixel_to_solid (cairo_image_surface_t *image, int x, int y)
 	return pixman_image_create_solid_fill (&color);
 
     case CAIRO_FORMAT_RGB16_565:
-	pixel = *(uint16_t *) (image->data + y * image->stride + 2 * x);
+	pixel = *(uint16_t *) (image_buffer->data + y * image_buffer->stride + 2 * x);
 	if (pixel == 0)
 	    return _pixman_black_image ();
 	if (pixel == 0xffff)
@@ -494,7 +543,7 @@ _pixel_to_solid (cairo_image_surface_t *image, int x, int y)
 	return pixman_image_create_solid_fill (&color);
 
     case CAIRO_FORMAT_RGB30:
-	pixel = *(uint32_t *) (image->data + y * image->stride + 4 * x);
+	pixel = *(uint32_t *) (image_buffer->data + y * image_buffer->stride + 4 * x);
 	pixel &= 0x3fffffff; /* ignore alpha bits */
 	if (pixel == 0)
 	    return _pixman_black_image ();
@@ -510,8 +559,8 @@ _pixel_to_solid (cairo_image_surface_t *image, int x, int y)
 
     case CAIRO_FORMAT_ARGB32:
     case CAIRO_FORMAT_RGB24:
-	pixel = *(uint32_t *) (image->data + y * image->stride + 4 * x);
-	color.alpha = image->format == CAIRO_FORMAT_ARGB32 ? (pixel >> 24) | (pixel >> 16 & 0xff00) : 0xffff;
+	pixel = *(uint32_t *) (image_buffer->data + y * image_buffer->stride + 4 * x);
+	color.alpha = image_buffer->format == CAIRO_FORMAT_ARGB32 ? (pixel >> 24) | (pixel >> 16 & 0xff00) : 0xffff;
 	if (color.alpha == 0)
 	    return _pixman_transparent_image ();
 	if (pixel == 0xffffffff)
@@ -799,6 +848,16 @@ done:
     return pixman_image;
 }
 
+static inline cairo_bool_t
+_surface_type_is_image_buffer (cairo_surface_type_t type)
+{
+#if CAIRO_HAS_TG_SURFACE
+    return type == CAIRO_SURFACE_TYPE_IMAGE || type == CAIRO_SURFACE_TYPE_TG;
+#else
+    return type == CAIRO_SURFACE_TYPE_IMAGE;
+#endif
+}
+
 static pixman_image_t *
 _pixman_image_for_surface (cairo_image_surface_t *dst,
 			   const cairo_surface_pattern_t *pattern,
@@ -819,26 +878,27 @@ _pixman_image_for_surface (cairo_image_surface_t *dst,
 					   is_mask, extents, sample,
 					   ix, iy);
 
-    if (pattern->surface->type == CAIRO_SURFACE_TYPE_IMAGE &&
+    if (_surface_type_is_image_buffer (pattern->surface->type) &&
 	(! is_mask || ! pattern->base.has_component_alpha ||
 	 (pattern->surface->content & CAIRO_CONTENT_COLOR) == 0))
     {
 	cairo_surface_t *defer_free = NULL;
-	cairo_image_surface_t *source = (cairo_image_surface_t *) pattern->surface;
-	cairo_surface_type_t type;
+	cairo_surface_t *source = pattern->surface;
+	cairo_image_buffer_t image_buffer;
 
-	if (_cairo_surface_is_snapshot (&source->base)) {
-	    defer_free = _cairo_surface_snapshot_get_target (&source->base);
-	    source = (cairo_image_surface_t *) defer_free;
+	if (_cairo_surface_is_snapshot (source)) {
+	    defer_free = _cairo_surface_snapshot_get_target (source);
+	    source = (cairo_surface_t *) defer_free;
 	}
 
-	type = source->base.backend->type;
-	if (type == CAIRO_SURFACE_TYPE_IMAGE) {
+	if (_surface_type_is_image_buffer (source->backend->type)) {
+	    _get_image_buffer (source, &image_buffer);
+
 	    if (extend != CAIRO_EXTEND_NONE &&
 		sample->x >= 0 &&
 		sample->y >= 0 &&
-		sample->x + sample->width  <= source->width &&
-		sample->y + sample->height <= source->height)
+		sample->x + sample->width  <= image_buffer.width &&
+		sample->y + sample->height <= image_buffer.height)
 	    {
 		extend = CAIRO_EXTEND_NONE;
 	    }
@@ -846,8 +906,8 @@ _pixman_image_for_surface (cairo_image_surface_t *dst,
 	    if (sample->width == 1 && sample->height == 1) {
 		if (sample->x < 0 ||
 		    sample->y < 0 ||
-		    sample->x >= source->width ||
-		    sample->y >= source->height)
+		    sample->x >= image_buffer.width ||
+		    sample->y >= image_buffer.height)
 		{
 		    if (extend == CAIRO_EXTEND_NONE) {
 			cairo_surface_destroy (defer_free);
@@ -856,8 +916,7 @@ _pixman_image_for_surface (cairo_image_surface_t *dst,
 		}
 		else
 		{
-		    pixman_image = _pixel_to_solid (source,
-						    sample->x, sample->y);
+		    pixman_image = _pixel_to_solid (&image_buffer, sample->x, sample->y);
                     if (pixman_image) {
 			cairo_surface_destroy (defer_free);
                         return pixman_image;
@@ -873,15 +932,15 @@ _pixman_image_for_surface (cairo_image_surface_t *dst,
 						     ix, iy))
 	    {
 		cairo_surface_destroy (defer_free);
-		return pixman_image_ref (source->pixman_image);
+		return pixman_image_ref (image_buffer.pixman_image);
 	    }
 #endif
 
-	    pixman_image = pixman_image_create_bits (source->pixman_format,
-						     source->width,
-						     source->height,
-						     (uint32_t *) source->data,
-						     source->stride);
+	    pixman_image = pixman_image_create_bits (image_buffer.pixman_format,
+						     image_buffer.width,
+						     image_buffer.height,
+						     (uint32_t *) image_buffer.data,
+						     image_buffer.stride);
 	    if (unlikely (pixman_image == NULL)) {
 		cairo_surface_destroy (defer_free);
 		return NULL;
@@ -892,12 +951,14 @@ _pixman_image_for_surface (cairo_image_surface_t *dst,
 						   _defer_free_cleanup,
 						   defer_free);
 	    }
-	} else if (type == CAIRO_SURFACE_TYPE_SUBSURFACE) {
+	} else if (source->backend->type == CAIRO_SURFACE_TYPE_SUBSURFACE) {
 	    cairo_surface_subsurface_t *sub;
 	    cairo_bool_t is_contained = FALSE;
 
 	    sub = (cairo_surface_subsurface_t *) source;
-	    source = (cairo_image_surface_t *) sub->target;
+	    source = sub->target;
+
+	    _get_image_buffer (source, &image_buffer);
 
 	    if (sample->x >= 0 &&
 		sample->y >= 0 &&
@@ -909,7 +970,7 @@ _pixman_image_for_surface (cairo_image_surface_t *dst,
 
 	    if (sample->width == 1 && sample->height == 1) {
 		if (is_contained) {
-		    pixman_image = _pixel_to_solid (source,
+		    pixman_image = _pixel_to_solid (&image_buffer,
                                                     sub->extents.x + sample->x,
                                                     sub->extents.y + sample->y);
                     if (pixman_image)
@@ -928,21 +989,21 @@ _pixman_image_for_surface (cairo_image_surface_t *dst,
 						     pattern->base.filter,
 						     ix, iy))
 	    {
-		return pixman_image_ref (source->pixman_image);
+		return pixman_image_ref (image_buffer.pixman_image);
 	    }
 #endif
 
 	    /* Avoid sub-byte offsets, force a copy in that case. */
-	    if (PIXMAN_FORMAT_BPP (source->pixman_format) >= 8) {
+	    if (PIXMAN_FORMAT_BPP (image_buffer.pixman_format) >= 8) {
 		if (is_contained) {
-		    void *data = source->data
-			+ sub->extents.x * PIXMAN_FORMAT_BPP(source->pixman_format)/8
-			+ sub->extents.y * source->stride;
-		    pixman_image = pixman_image_create_bits (source->pixman_format,
+		    void *data = image_buffer.data
+			+ sub->extents.x * PIXMAN_FORMAT_BPP(image_buffer.pixman_format)/8
+			+ sub->extents.y * image_buffer.stride;
+		    pixman_image = pixman_image_create_bits (image_buffer.pixman_format,
 							     sub->extents.width,
 							     sub->extents.height,
 							     data,
-							     source->stride);
+							     image_buffer.stride);
 		    if (unlikely (pixman_image == NULL))
 			return NULL;
 		} else {

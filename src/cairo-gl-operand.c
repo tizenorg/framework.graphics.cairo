@@ -107,20 +107,23 @@ static void
 _cairo_gl_image_cache_lock (cairo_gl_context_t *ctx,
 			    cairo_gl_image_t *image_node)
 {
-    _cairo_rtree_pin (&ctx->image_cache.rtree, &image_node->node);
+    if (ctx->image_cache && ctx->image_cache->surface)
+	_cairo_rtree_pin (&ctx->image_cache->rtree, &image_node->node);
 }
 
 void
 _cairo_gl_image_cache_unlock (cairo_gl_context_t *ctx)
 {
-    if (ctx->image_cache.surface)
-	_cairo_rtree_unpin (&(ctx->image_cache.rtree));
+    if (ctx->image_cache && ctx->image_cache->surface)
+	_cairo_rtree_unpin (&(ctx->image_cache->rtree));
 }
 
 static cairo_int_status_t
-_cairo_gl_copy_texture (cairo_gl_surface_t *dst,
+_cairo_gl_copy_texture (cairo_gl_surface_t *surface,
+			cairo_gl_surface_t *dst,
 			cairo_gl_surface_t *image,
-			int x, int y,
+			int dst_x, int dst_y,
+			int src_x, int src_y,
 			int width, int height,
 			cairo_bool_t replace,
 			cairo_gl_context_t **ctx)
@@ -128,68 +131,141 @@ _cairo_gl_copy_texture (cairo_gl_surface_t *dst,
     cairo_int_status_t status;
     cairo_gl_context_t *ctx_out;
     cairo_gl_dispatch_t *dispatch;
-    cairo_gl_surface_t *cache_surface;
     cairo_gl_surface_t *target;
     cairo_surface_pattern_t pattern;
-    cairo_rectangle_int_t r;
+    cairo_rectangle_int_t rect;
     cairo_clip_t *clip;
 
     if (! _cairo_gl_surface_is_texture (image))
 	return CAIRO_INT_STATUS_UNSUPPORTED;
 
-    status = _cairo_gl_context_acquire (dst->base.device, &ctx_out);
+    status = _cairo_gl_context_acquire (surface->base.device, &ctx_out);
     if(unlikely (status))
 	return status;
-
-    if (! ctx_out->image_cache.surface) {
-       status = _cairo_gl_image_cache_init (ctx_out);
-       if (unlikely (status))
-           return status;
-    }
 
     if (replace)
 	_cairo_gl_composite_flush (ctx_out);
 
     image->needs_to_cache = FALSE;
     dispatch = &ctx_out->dispatch;
-    cache_surface = ctx_out->image_cache.surface;
     target = ctx_out->current_target;
 
     /* paint image to dst */
-    r.x = x; r.y = y; r.width = width; r.height = height;
-    clip = _cairo_clip_intersect_rectangle (NULL, &r);
     _cairo_pattern_init_for_surface (&pattern, &image->base);
-    cairo_matrix_init_translate (&pattern.base.matrix, -x, -y);
+    cairo_matrix_init_translate (&pattern.base.matrix,
+								 -dst_x + src_x, -dst_y + src_y);
 
-    status = _cairo_surface_paint (&cache_surface->base,
+    rect.x = dst_x;
+    rect.y = dst_y;
+    rect.width = width;
+    rect.height = height;
+    clip = _cairo_clip_intersect_rectangle (NULL, &rect);
+
+    status = _cairo_surface_paint (&dst->base,
                                    CAIRO_OPERATOR_SOURCE,
                                    &pattern.base, clip);
+
+    _cairo_clip_destroy (clip);
 
     _cairo_gl_composite_flush (ctx_out);
     _cairo_pattern_fini (&pattern.base);
     image->needs_to_cache = TRUE;
 
+    if (unlikely (status))
+	goto finish;
+
+    status = _resolve_multisampling (dst);
+
+finish:
     /* restore ctx status */
-    _cairo_gl_context_set_destination (ctx_out, target, TRUE);
-    ctx_out->current_target = target;
+    if (target)
+	_cairo_gl_context_set_destination (ctx_out, target,
+					   target->msaa_active);
     *ctx = ctx_out;
 
     if (unlikely (status))
         return _cairo_gl_context_release (ctx_out, status);
-
     return status;
+}
+
+static void
+_cairo_gl_copy_image_cache (cairo_rtree_node_t *node, void *data)
+{
+    cairo_gl_image_cache_t *new_cache = (cairo_gl_image_cache_t *)data;
+    cairo_gl_image_t *image_node = (cairo_gl_image_t *)node;
+    cairo_gl_image_t *new_image_node;
+    cairo_int_status_t status;
+    cairo_rtree_node_t *new_node = NULL;
+    int width, height;
+    cairo_gl_surface_t *image = (cairo_gl_surface_t *)image_node->original_surface;
+    cairo_gl_context_t *ctx = image_node->ctx;
+
+    if (node->state != CAIRO_RTREE_NODE_OCCUPIED || !image)
+        return;
+
+    width = image->width;
+    height = image->height;
+
+    status = _cairo_rtree_insert (&new_cache->rtree, width,
+				  height, &new_node);
+
+    /* because new_cache has larger size, eviction will not happen */
+    if (status)
+    {
+		new_cache->copy_success = FALSE;
+		return;
+    }
+
+    /* Paint image to cache. */
+    status = _cairo_gl_copy_texture (new_cache->surface,
+				     new_cache->surface,
+				     ctx->image_cache->surface,
+				     new_node->x, new_node->y,
+				     node->x, node->y,
+				     width, height,
+				     FALSE, &ctx);
+    if (unlikely (status)) {
+		new_cache->copy_success = FALSE;
+		return;
+    }
+
+    new_image_node = (cairo_gl_image_t *)new_node;
+    new_image_node->ctx = ctx;
+    new_image_node->original_surface = &image->base;
+    /* Coordinate. */
+    new_image_node->p1.x = new_node->x;
+    new_image_node->p1.y = new_node->y;
+    new_image_node->p2.x = new_node->x + image->width;
+    new_image_node->p2.y = new_node->y + image->height;
+    if (! _cairo_gl_device_requires_power_of_two_textures (&ctx->base)) {
+	new_image_node->p1.x /= new_cache->surface->width;
+	new_image_node->p2.x /= new_cache->surface->width;
+	new_image_node->p1.y /= new_cache->surface->height;
+	new_image_node->p2.y /= new_cache->surface->height;
+    }
+    image->content_changed = FALSE;
+
+    image_node->original_surface = NULL;
+
+    image->image_node = new_image_node;
+
+    _cairo_gl_image_cache_lock (ctx, new_image_node);
+    status = _cairo_gl_context_release (ctx, status);
 }
 
 static cairo_int_status_t
 _cairo_gl_image_cache_replace_image (cairo_gl_image_t *image_node,
 				     cairo_gl_surface_t *dst,
+				     cairo_gl_surface_t *cache_surface,
 				     cairo_gl_surface_t *image,
 				     cairo_gl_context_t **ctx)
 {
     cairo_int_status_t status;
     /* Paint image to cache. */
-    status = _cairo_gl_copy_texture (dst, image, image_node->node.x,
+    status = _cairo_gl_copy_texture (dst, cache_surface,
+				     image, image_node->node.x,
 				     image_node->node.y,
+			  	     0, 0,
 				     image->width, image->height,
 				     TRUE,
 				     ctx);
@@ -207,22 +283,26 @@ _cairo_gl_image_cache_add_image (cairo_gl_context_t *ctx,
     cairo_rtree_node_t *node = NULL;
     int width, height;
     cairo_bool_t replaced = FALSE;
+    int image_cache_size;
 
     if (! image->base.device ||
 	(image->width > IMAGE_CACHE_MAX_SIZE ||
 	image->height > IMAGE_CACHE_MAX_SIZE))
-	return CAIRO_INT_STATUS_UNSUPPORTED;
+		return CAIRO_INT_STATUS_UNSUPPORTED;
+	else if (! _cairo_gl_surface_is_texture (image))
+		return CAIRO_INT_STATUS_UNSUPPORTED;
 
     width = image->width;
     height = image->height;
 
-    *image_node =
-	(cairo_gl_image_t *) cairo_surface_get_user_data (&image->base,
-							       (const cairo_user_data_key_t *) (&image->base));
+    *image_node = image->image_node;
+
     if (*image_node) {
 	if (image->content_changed) {
 	    status = _cairo_gl_image_cache_replace_image (*image_node,
-							  dst, image, &ctx);
+                                                      dst,
+                                                      ctx->image_cache->surface,
+													  image, &ctx);
 
 	    if (unlikely (status))
 		return status;
@@ -238,30 +318,71 @@ _cairo_gl_image_cache_add_image (cairo_gl_context_t *ctx,
 	return CAIRO_INT_STATUS_SUCCESS;
     }
 
-    status = _cairo_rtree_insert (&ctx->image_cache.rtree, width,
-				  height, &node);
-    /* Search for an unlocked slot. */
-    if (status == CAIRO_INT_STATUS_UNSUPPORTED) {
-	_cairo_gl_composite_flush (ctx);
-	_cairo_gl_image_cache_unlock (ctx);
-
-	status = _cairo_rtree_evict_random (&ctx->image_cache.rtree,
-					    width, height, &node);
-
-	if (status == CAIRO_INT_STATUS_SUCCESS)
-	    status = _cairo_rtree_node_insert (&ctx->image_cache.rtree,
-					       node, width, height, &node);
+    if (! ctx->image_cache) {
+       status = _cairo_gl_image_cache_init (ctx,
+					    MIN_IMAGE_CACHE_WIDTH,
+					    MIN_IMAGE_CACHE_HEIGHT,
+					    &ctx->image_cache);
+       if (unlikely (status))
+           return status;
     }
 
-    if (status)
-	return status;
+    status = _cairo_rtree_insert (&ctx->image_cache->rtree, width,
+								  height, &node);
+    /* Search for an unlocked slot. */
+    if (status == CAIRO_INT_STATUS_UNSUPPORTED) {
+		cairo_gl_image_cache_t *new_cache = NULL;
+		_cairo_gl_composite_flush (ctx);
+
+        image_cache_size = ((cairo_gl_surface_t *)(ctx->image_cache->surface))->width;
+        if (image_cache_size < MAX_IMAGE_CACHE_WIDTH) {
+            image_cache_size *= 2;
+            status = _cairo_gl_image_cache_init (ctx,
+												 image_cache_size,
+                                                 image_cache_size,
+												 &new_cache);
+		    if (status == CAIRO_INT_STATUS_SUCCESS) {
+	            /* copy existing image cache to new image cache */
+	            _cairo_rtree_foreach (&ctx->image_cache->rtree,
+	                                  _cairo_gl_copy_image_cache,
+	                                  (void *)new_cache);
+				if (new_cache->copy_success) {
+					_cairo_gl_image_cache_fini (ctx);
+					ctx->image_cache = new_cache;
+				} else {
+					_cairo_rtree_fini (&new_cache->rtree);
+					cairo_surface_destroy (&new_cache->surface->base);
+					free (new_cache);
+					new_cache = NULL;
+					status = CAIRO_INT_STATUS_UNSUPPORTED;
+				}
+		    }
+		}
+		if (!new_cache)
+			status = _cairo_rtree_evict_random (&ctx->image_cache->rtree,
+												width, height, &node);
+
+		if (status == CAIRO_INT_STATUS_SUCCESS) {
+		    if (! node)
+		        status = _cairo_rtree_insert (&ctx->image_cache->rtree,
+											width, height, &node);
+		    else
+		        status = _cairo_rtree_node_insert (&ctx->image_cache->rtree,
+													node, width, height, &node);
+		}
+    }
+
+    if (unlikely (status))
+		return status;
 
     /* Paint image to cache. */
-    status = _cairo_gl_copy_texture (dst, image, node->x, node->y,
+    status = _cairo_gl_copy_texture (dst, ctx->image_cache->surface,
+				     image, node->x, node->y,
+				     0, 0,
 				     image->width, image->height,
 				     FALSE, &ctx);
     if (unlikely (status))
-	return status;
+		return status;
 
     *image_node = (cairo_gl_image_t *)node;
     (*image_node)->ctx = ctx;
@@ -272,20 +393,16 @@ _cairo_gl_image_cache_add_image (cairo_gl_context_t *ctx,
     (*image_node)->p2.x = node->x + image->width;
     (*image_node)->p2.y = node->y + image->height;
     if (! _cairo_gl_device_requires_power_of_two_textures (&ctx->base)) {
-	(*image_node)->p1.x /= IMAGE_CACHE_WIDTH;
-	(*image_node)->p2.x /= IMAGE_CACHE_WIDTH;
-	(*image_node)->p1.y /= IMAGE_CACHE_HEIGHT;
-	(*image_node)->p2.y /= IMAGE_CACHE_HEIGHT;
+	(*image_node)->p1.x /= ctx->image_cache->surface->width;
+	(*image_node)->p2.x /= ctx->image_cache->surface->width;
+	(*image_node)->p1.y /= ctx->image_cache->surface->height;
+	(*image_node)->p2.y /= ctx->image_cache->surface->height;
     }
-    (*image_node)->user_data_removed = FALSE;
     image->content_changed = FALSE;
-    /* Set user data. */
-    status = cairo_surface_set_user_data (&image->base,
-					  (const cairo_user_data_key_t *) &image->base,
-					  (void *) *image_node,
-					  _cairo_gl_image_node_fini);
+    image->image_node = *image_node;
 
     _cairo_gl_image_cache_lock (ctx, *image_node);
+
     return _cairo_gl_context_release (ctx, status);
 }
 
@@ -390,6 +507,7 @@ _cairo_gl_subsurface_operand_init (cairo_gl_operand_t *operand,
     cairo_int_status_t status;
     cairo_gl_image_t *image_node = NULL;
     cairo_gl_context_t *ctx = (cairo_gl_context_t *)dst->base.device;
+    cairo_bool_t ctx_acquired = FALSE;
 
     sub = (cairo_surface_subsurface_t *) src->surface;
 
@@ -423,9 +541,14 @@ _cairo_gl_subsurface_operand_init (cairo_gl_operand_t *operand,
     attributes->matrix.x0 += sub->extents.x;
     attributes->matrix.y0 += sub->extents.y;
 
-    if (surface->needs_to_cache)
-	status = _cairo_gl_image_cache_add_image (ctx, dst, surface,
-						  &image_node);
+    if (surface->needs_to_cache && surface->base.device) {
+		status = _cairo_gl_context_acquire (dst->base.device, &ctx);
+		if (status == CAIRO_INT_STATUS_SUCCESS) {
+			ctx_acquired = TRUE;
+			status = _cairo_gl_image_cache_add_image (ctx, dst, surface,
+								  &image_node);
+		}
+    }
 
     /* Translate the matrix from
      * (unnormalized src -> unnormalized src) to
@@ -438,9 +561,9 @@ _cairo_gl_subsurface_operand_init (cairo_gl_operand_t *operand,
 			       &surface->operand.texture.attributes.matrix);
    else {
 	cairo_matrix_t matrix = src->base.matrix;
-	operand->texture.surface = ctx->image_cache.surface;
+	operand->texture.surface = ctx->image_cache->surface;
 	operand->texture.owns_surface = NULL;
-	operand->texture.tex = ctx->image_cache.surface->tex;
+	operand->texture.tex = ctx->image_cache->surface->tex;
 	attributes->extend = CAIRO_EXTEND_NONE;
 	operand->texture.extend = src->base.extend;
 	attributes->matrix.x0 = image_node->node.x + sub->extents.x;
@@ -452,16 +575,19 @@ _cairo_gl_subsurface_operand_init (cairo_gl_operand_t *operand,
 	operand->texture.p2.x = image_node->p2.x;
 	operand->texture.p2.y = image_node->p2.y;
 	if (src->base.extend == CAIRO_EXTEND_PAD) {
-	    operand->texture.p1.x += 0.5 / IMAGE_CACHE_WIDTH;
-	    operand->texture.p1.y += 0.5 / IMAGE_CACHE_HEIGHT;
-	    operand->texture.p2.x -= 0.5 / IMAGE_CACHE_WIDTH;
-	    operand->texture.p2.y -= 0.5 / IMAGE_CACHE_HEIGHT;
+	    operand->texture.p1.x += 0.5 / ctx->image_cache->surface->width;
+	    operand->texture.p1.y += 0.5 / ctx->image_cache->surface->height;
+	    operand->texture.p2.x -= 0.5 / ctx->image_cache->surface->width;
+	    operand->texture.p2.y -= 0.5 / ctx->image_cache->surface->height;
 	}
 
 	cairo_matrix_multiply (&attributes->matrix,
 			       &matrix,
-			       &ctx->image_cache.surface->operand.texture.attributes.matrix);
+			       &ctx->image_cache->surface->operand.texture.attributes.matrix);
     }
+
+	if (ctx_acquired)
+		return _cairo_gl_context_release (ctx, status);
 
     return CAIRO_STATUS_SUCCESS;
 }
@@ -479,6 +605,7 @@ _cairo_gl_surface_operand_init (cairo_gl_operand_t *operand,
     cairo_int_status_t status;
     cairo_gl_image_t *image_node = NULL;
     cairo_gl_context_t *ctx = (cairo_gl_context_t *)dst->base.device;
+	cairo_bool_t ctx_acquired = FALSE;
 
     surface = (cairo_gl_surface_t *) src->surface;
     if (surface->base.type != CAIRO_SURFACE_TYPE_GL)
@@ -511,9 +638,14 @@ _cairo_gl_surface_operand_init (cairo_gl_operand_t *operand,
     attributes->filter = src->base.filter;
     attributes->has_component_alpha = src->base.has_component_alpha;
 
-    if (surface->needs_to_cache)
-	status = _cairo_gl_image_cache_add_image (ctx, dst, surface,
-						  &image_node);
+    if (surface->needs_to_cache && surface->base.device) {
+		status = _cairo_gl_context_acquire (dst->base.device, &ctx);
+		if (status == CAIRO_INT_STATUS_SUCCESS) {
+			ctx_acquired = TRUE;
+			status = _cairo_gl_image_cache_add_image (ctx, dst, surface,
+								  &image_node);
+		}
+    }
 
     if (unlikely (status) || ! image_node)
 	cairo_matrix_multiply (&attributes->matrix,
@@ -530,21 +662,24 @@ _cairo_gl_surface_operand_init (cairo_gl_operand_t *operand,
 	operand->texture.p2.x = image_node->p2.x;
 	operand->texture.p2.y = image_node->p2.y;
 	if (src->base.extend == CAIRO_EXTEND_PAD) {
-	    operand->texture.p1.x += 0.5 / IMAGE_CACHE_WIDTH;
-	    operand->texture.p1.y += 0.5 / IMAGE_CACHE_HEIGHT;
-	    operand->texture.p2.x -= 0.5 / IMAGE_CACHE_WIDTH;
-	    operand->texture.p2.y -= 0.5 / IMAGE_CACHE_HEIGHT;
+	    operand->texture.p1.x += 0.5 / ctx->image_cache->surface->width;
+	    operand->texture.p1.y += 0.5 / ctx->image_cache->surface->height;
+	    operand->texture.p2.x -= 0.5 / ctx->image_cache->surface->width;
+	    operand->texture.p2.y -= 0.5 / ctx->image_cache->surface->height;
 	}
 
-	operand->texture.surface = ctx->image_cache.surface;
+	operand->texture.surface = ctx->image_cache->surface;
 	operand->texture.owns_surface = NULL;
-	operand->texture.tex = ctx->image_cache.surface->tex;
+	operand->texture.tex = ctx->image_cache->surface->tex;
 	matrix.x0 += image_node->node.x;
 	matrix.y0 += image_node->node.y;
 	cairo_matrix_multiply (&attributes->matrix,
 			       &matrix,
-			       &ctx->image_cache.surface->operand.texture.attributes.matrix);
+			       &ctx->image_cache->surface->operand.texture.attributes.matrix);
     }
+
+	if (ctx_acquired)
+		return _cairo_gl_context_release (ctx, status);
 
     return CAIRO_STATUS_SUCCESS;
 }
@@ -605,7 +740,10 @@ _cairo_gl_pattern_texture_setup (cairo_gl_operand_t *operand,
     operand->texture.owns_surface = surface;
     operand->texture.attributes.matrix.x0 -= extents->x * operand->texture.attributes.matrix.xx;
     operand->texture.attributes.matrix.y0 -= extents->y * operand->texture.attributes.matrix.yy;
-    dst->needs_to_cache = TRUE;
+    if (_cairo_gl_surface_is_texture (dst) &&
+		dst->width <= IMAGE_CACHE_MAX_SIZE &&
+		dst->height <= IMAGE_CACHE_MAX_SIZE)
+		dst->needs_to_cache = TRUE;
     operand->texture.use_atlas = FALSE;
 
     return CAIRO_STATUS_SUCCESS;
@@ -1039,8 +1177,7 @@ _cairo_gl_operand_needs_setup (cairo_gl_operand_t *dest,
         return dest->texture.surface != source->texture.surface ||
                dest->texture.attributes.extend != source->texture.attributes.extend ||
                dest->texture.attributes.filter != source->texture.attributes.filter ||
-               dest->texture.attributes.has_component_alpha != source->texture.attributes.has_component_alpha ||
-               (dest->texture.use_atlas && source->texture.use_atlas);
+               dest->texture.attributes.has_component_alpha != source->texture.attributes.has_component_alpha;
     case CAIRO_GL_OPERAND_LINEAR_GRADIENT:
     case CAIRO_GL_OPERAND_RADIAL_GRADIENT_A0:
     case CAIRO_GL_OPERAND_RADIAL_GRADIENT_NONE:
@@ -1147,10 +1284,10 @@ static inline cairo_int_status_t
 _cairo_gl_context_get_image_cache (cairo_gl_context_t 	   *ctx,
 				   cairo_gl_image_cache_t  **cache_out)
 {
-    if (! ctx->image_cache.surface)
+    if (! ctx->image_cache)
 	return CAIRO_INT_STATUS_UNSUPPORTED;
 
-    *cache_out = &(ctx->image_cache);
+    *cache_out = ctx->image_cache;
     return CAIRO_INT_STATUS_SUCCESS;
 }
 
@@ -1165,24 +1302,7 @@ _cairo_gl_image_node_destroy (cairo_rtree_node_t *node)
 						       node);
 
     surface = image_node->original_surface;
-    image_node->node_removed = TRUE;
    /* Remove from original surface. */
-   if (image_node->original_surface &&
-       ! image_node->user_data_removed) {
-	cairo_surface_set_user_data (image_node->original_surface,
-				     (const cairo_user_data_key_t *) surface,
-				     (void *) NULL, NULL);
-    }
-}
-
-void
-_cairo_gl_image_node_fini (void *data)
-{
-    cairo_gl_image_t *image_node = (cairo_gl_image_t *)data;
-
-    image_node->user_data_removed = TRUE;
-
-    if (! image_node->node_removed && ! image_node->node.pinned)
-	_cairo_rtree_node_remove (&image_node->ctx->image_cache.rtree,
-				  &image_node->node);
+   if (image_node->original_surface)
+	((cairo_gl_surface_t *)surface)->image_node = NULL;
 }

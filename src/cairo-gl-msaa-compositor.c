@@ -1026,7 +1026,6 @@ _cairo_gl_msaa_compositor_glyphs (const cairo_compositor_t	*compositor,
     _cairo_scaled_font_thaw_cache (scaled_font);
 
 finish:
-    if (src)
 	cairo_surface_destroy (src);
 
     return status;
