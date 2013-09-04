@@ -401,8 +401,10 @@ cairo_gl_shader_get_vertex_source (cairo_gl_var_type_t src_type,
 				"}\n\0", 3);
 
     status = _cairo_memory_stream_destroy (stream, &source, &length);
-    if (unlikely (status))
-	return status;
+    if (unlikely (status)) {
+        free (source);
+        return status;
+    }
 
     *out = (char *) source;
     return CAIRO_STATUS_SUCCESS;
@@ -866,8 +868,10 @@ cairo_gl_shader_get_fragment_source (cairo_gl_context_t *ctx,
                                 "}\n\0", 3);
 
     status = _cairo_memory_stream_destroy (stream, &source, &length);
-    if (unlikely (status))
+    if (unlikely (status)) {
+        free (source);
         return status;
+    }
 
     *out = (char *) source;
     return CAIRO_STATUS_SUCCESS;

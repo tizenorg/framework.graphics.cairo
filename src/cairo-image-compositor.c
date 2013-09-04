@@ -52,10 +52,6 @@
 #include "cairo-traps-private.h"
 #include "cairo-tristrip-private.h"
 
-#if CAIRO_ENABLE_PER_THREAD_GLYPH_CACHE
-#include "cairo-thread-local-private.h"
-#endif
-
 static pixman_image_t *
 to_pixman_image (cairo_surface_t *s)
 {
@@ -764,22 +760,14 @@ check_composite_glyphs (const cairo_composite_rectangles_t *extents,
 }
 
 #if HAS_PIXMAN_GLYPHS
-#if CAIRO_ENABLE_PER_THREAD_GLYPH_CACHE
-CAIRO_DEFINE_THREAD_LOCAL (pixman_glyph_cache_t *, per_thread_glyph_cache);
-#else
 static pixman_glyph_cache_t *global_glyph_cache;
-#endif
 
 static inline pixman_glyph_cache_t *
 get_glyph_cache (void)
 {
     pixman_glyph_cache_t **glyph_cache = NULL;
 
-#if CAIRO_ENABLE_PER_THREAD_GLYPH_CACHE
-    glyph_cache = CAIRO_GET_THREAD_LOCAL (per_thread_glyph_cache);
-#else
     glyph_cache = &global_glyph_cache;
-#endif
 
     if (! (*glyph_cache))
 	*glyph_cache = pixman_glyph_cache_create ();
@@ -793,22 +781,15 @@ _cairo_image_scaled_glyph_fini (cairo_scaled_font_t *scaled_font,
 {
     pixman_glyph_cache_t *glyph_cache = NULL;
 
-#if CAIRO_ENABLE_PER_THREAD_GLYPH_CACHE
-    glyph_cache = *CAIRO_GET_THREAD_LOCAL (per_thread_glyph_cache);
-#else
     glyph_cache = global_glyph_cache;
     CAIRO_MUTEX_LOCK (_cairo_glyph_cache_mutex);
-#endif
 
     if (glyph_cache) {
 	pixman_glyph_cache_remove (
 	    glyph_cache, scaled_font,
 	    (void *)_cairo_scaled_glyph_index (scaled_glyph));
     }
-
-#if ! CAIRO_ENABLE_PER_THREAD_GLYPH_CACHE
     CAIRO_MUTEX_UNLOCK (_cairo_glyph_cache_mutex);
-#endif
 }
 
 static cairo_int_status_t
@@ -830,9 +811,7 @@ composite_glyphs (void				*_dst,
 
     TRACE ((stderr, "%s\n", __FUNCTION__));
 
-#if ! CAIRO_ENABLE_PER_THREAD_GLYPH_CACHE
     CAIRO_MUTEX_LOCK (_cairo_glyph_cache_mutex);
-#endif
 
     glyph_cache = get_glyph_cache();
     if (unlikely (glyph_cache == NULL)) {
@@ -860,24 +839,18 @@ composite_glyphs (void				*_dst,
 	    cairo_scaled_glyph_t *scaled_glyph;
 	    cairo_image_surface_t *glyph_surface;
 
-#if ! CAIRO_ENABLE_PER_THREAD_GLYPH_CACHE
 	    /* This call can actually end up recursing, so we have to
 	     * drop the mutex around it.
 	     */
 	    CAIRO_MUTEX_UNLOCK (_cairo_glyph_cache_mutex);
-#endif
-	    _cairo_scaled_font_freeze_cache (info->font);
 
 	    status = _cairo_scaled_glyph_lookup (info->font, index,
 						 CAIRO_SCALED_GLYPH_INFO_SURFACE,
 						 &scaled_glyph);
 
-#if ! CAIRO_ENABLE_PER_THREAD_GLYPH_CACHE
 	    CAIRO_MUTEX_LOCK (_cairo_glyph_cache_mutex);
-#endif
 
 	    if (unlikely (status)) {
-		_cairo_scaled_font_thaw_cache (info->font);
 		goto out_thaw;
 	    }
 
@@ -886,8 +859,6 @@ composite_glyphs (void				*_dst,
 					       glyph_surface->base.device_transform.x0,
 					       glyph_surface->base.device_transform.y0,
 					       glyph_surface->pixman_image);
-
-	    _cairo_scaled_font_thaw_cache (info->font);
 
 	    if (unlikely (!glyph)) {
 		status = _cairo_error (CAIRO_STATUS_NO_MEMORY);
@@ -931,9 +902,7 @@ out_thaw:
 	free(pglyphs);
 
 out_unlock:
-#if ! CAIRO_ENABLE_PER_THREAD_GLYPH_CACHE
     CAIRO_MUTEX_UNLOCK (_cairo_glyph_cache_mutex);
-#endif
 
     return status;
 }
@@ -1172,8 +1141,6 @@ composite_glyphs (void				*_dst,
 
     TRACE ((stderr, "%s\n", __FUNCTION__));
 
-    _cairo_scaled_font_freeze_cache (info->font);
-
     if (info->num_glyphs == 1) {
 	status = composite_one_glyph(_dst, op, _src, src_x, src_y, dst_x, dst_y, info);
 	goto out_thaw;
@@ -1231,8 +1198,6 @@ composite_glyphs (void				*_dst,
     }
 
 out_thaw:
-    _cairo_scaled_font_thaw_cache (info->font);
-
     return status;
 }
 #endif

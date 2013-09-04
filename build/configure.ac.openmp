@@ -1,0 +1,74 @@
+m4_define([libcairo_openmp_program],[dnl
+  #include <stdio.h>
+
+  extern unsigned int lcg_seed;
+  #pragma omp threadprivate(lcg_seed)
+  unsigned int lcg_seed;
+
+  unsigned function(unsigned a, unsigned b)
+  {
+	lcg_seed ^= b;
+	return ((a + b) ^ a ) + lcg_seed;
+  }
+
+  int main(int argc, char **argv)
+  {
+	int i;
+	int n1 = 0, n2 = argc;
+	unsigned checksum = 0;
+	int verbose = argv != NULL;
+	unsigned (*test_function)(unsigned, unsigned);
+	test_function = function;
+	#pragma omp parallel for reduction(+:checksum) default(none) \
+					shared(n1, n2, test_function, verbose)
+	for (i = n1; i < n2; i++)
+	{
+		unsigned crc = test_function (i, 0);
+		if (verbose)
+			printf ("%d: %08X\n", i, crc);
+		checksum += crc;
+	}
+	printf("%u\n", checksum);
+	return 0;
+  }
+}])
+
+AC_DEFUN([CAIRO_CHECK_OPENMP],[dnl
+	 CAIRO_CC_TRY_LINK_WITH_ENV_SILENT(
+		    [CFLAGS="$CFLAGS $2";
+		     LIBS="$LIBS $3"],
+		    [$4],
+		    [$1_CFLAGS="$2";
+		     $1_LIBS="$3";
+		     $5],
+		    [$1_CFLAGS="";
+		     $1_LIBS="";
+		     $6])
+])
+
+AC_DEFUN([CAIRO_CONFIGURE_OPENMP],[dnl
+	if test "x$OPENMP_CFLAGS" = "x"; then
+		OPENMP_CFLAGS="-fopenmp"
+	fi
+	if test "x$OPENMP_LIBS" = "x"; then
+		OPENMP_LIBS="-lgomp"
+	fi
+
+	CAIRO_CHECK_OPENMP(
+		[openmp], [$OPENMP_CFLAGS], [$OPENMP_LIBS],
+		[libcairo_openmp_program],
+		[have_openmp=yes],
+		[have_openmp=no])
+	OPENMP_CFLAGS=
+	OPENMP_LIBS=
+
+	dnl Tell autoconf about the results.
+	if test "x$have_openmp" = "xyes"; then
+		 AC_DEFINE([CAIRO_HAS_OPENMP], 1,
+			[Define to 1 if we have openmp support])
+	fi
+
+	dnl Set the output variables for CAIRO_ENABLE.
+	use_openmp="$have_openmp"
+	openmp_REQUIRES=""
+])

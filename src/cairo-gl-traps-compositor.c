@@ -319,8 +319,10 @@ traps_to_operand (void *_dst,
 							    extents->width,
 							    extents->height,
 							    0);
-	if (unlikely (rgba_image->status))
+	if (unlikely (rgba_image->status)) {
+        cairo_surface_destroy (image);
 	    return rgba_image->status;
+	}
 
 	_cairo_pattern_init_for_surface (&pattern, image);
 	status = _cairo_surface_paint (rgba_image, CAIRO_OPERATOR_SOURCE,
