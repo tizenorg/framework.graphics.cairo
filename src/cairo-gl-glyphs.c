@@ -517,8 +517,12 @@ _cairo_gl_composite_glyphs (void			*_dst,
 			    int				 dst_y,
 			    cairo_composite_glyphs_info_t *info)
 {
-    return _cairo_gl_composite_glyphs_with_clip (_dst, op, _src, src_x, src_y,
-						 dst_x, dst_y, info, NULL, FALSE);
+    cairo_int_status_t status;
+
+    status = _cairo_gl_composite_glyphs_with_clip (_dst, op, _src, src_x, src_y,
+						   dst_x, dst_y, info, NULL, FALSE);
+
+    return status;
 }
 
 void

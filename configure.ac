@@ -34,7 +34,9 @@ m4_include(build/configure.ac.warnings)	dnl checks for compiler warning
 m4_include(build/configure.ac.system)	dnl checks for system functions, headers, libs
 m4_include(build/configure.ac.analysis)	dnl checks for analysis tools (lcov, etc)
 m4_include(build/configure.ac.noversion) dnl disable builtin libtool versioning
+m4_include(build/configure.ac.openmp) dnl checks for openmp
 m4_include(build/configure.ac.pthread)  dnl checks for pthreads
+m4_include(build/configure.ac.tls)  dnl checks for thread-local storage
 AC_CACHE_SAVE
 
 dnl ===========================================================================
@@ -71,6 +73,22 @@ if test "x$have_dlsym" = "xyes"; then
   AC_DEFINE([CAIRO_HAS_DLSYM], 1, [Define to 1 if dlsym is available])
 fi
 AM_CONDITIONAL(CAIRO_HAS_DLSYM, test "x$have_dlsym" = "xyes")
+
+dnl ===========================================================================
+dnl Check support for TLS
+have_tls=no
+CAIRO_ENABLE(tls, tls, no, [CAIRO_CONFIGURE_TLS])
+AM_CONDITIONAL(HAVE_TLS, test "x$use_tls" = "xyes")
+AC_SUBST(tls_CFLAGS)
+AC_SUBST(tls_LIBS)
+
+dnl ===========================================================================
+dnl Check support for pthread_setspecific
+have_pthread_setspecific=no
+CAIRO_ENABLE(pthread_setspecific, pthread_setspecific, no, [CAIRO_CONFIGURE_PTHREAD_SETSPECIFIC])
+AM_CONDITIONAL(HAVE_PTHREAD_SETSPECIFIC, test "x$use_pthread_setspecific" = "xyes")
+AC_SUBST(pthread_setspecific_CFLAGS)
+AC_SUBST(pthread_setspecific_LIBS)
 
 dnl ===========================================================================
 
@@ -681,6 +699,14 @@ CAIRO_ENABLE_SURFACE_BACKEND(xml, xml, no, [
 dnl ===========================================================================
 
 CAIRO_ENABLE_FONT_BACKEND(user, user, always)
+
+dnl ===========================================================================
+dnl Check support for openmp
+have_openmp=no
+CAIRO_ENABLE(openmp, openmp, no, [CAIRO_CONFIGURE_OPENMP])
+AM_CONDITIONAL(HAVE_OPENMP, test "x$use_openmp" = "xyes")
+AC_SUBST(openmp_CFLAGS)
+AC_SUBST(openmp_LIBS)
 
 dnl ===========================================================================
 dnl

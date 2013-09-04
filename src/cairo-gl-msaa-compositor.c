@@ -666,6 +666,8 @@ _prevent_overlapping_strokes (cairo_gl_context_t 		*ctx,
     _cairo_clip_destroy (setup->dst->clip_on_stencil_buffer);
     setup->dst->clip_on_stencil_buffer = NULL;
 
+    setup->dst->needs_update = TRUE;
+
     return CAIRO_INT_STATUS_SUCCESS;
 }
 
@@ -747,8 +749,7 @@ _cairo_gl_msaa_compositor_stroke (const cairo_compositor_t	*compositor,
 	return status;
 
     info.ctx = NULL;
-    use_color_attribute = _cairo_path_fixed_stroke_is_rectilinear (path) ||
-			  _cairo_gl_hairline_style_is_hairline (style, ctm);
+    use_color_attribute = _cairo_gl_hairline_style_is_hairline (style, ctm);
 
     status = _cairo_gl_composite_set_source (&info.setup,
 					     composite->original_source_pattern,
@@ -794,42 +795,27 @@ _cairo_gl_msaa_compositor_stroke (const cairo_compositor_t	*compositor,
 	goto finish;
     }
 
-    if (use_color_attribute) {
-	cairo_traps_t traps;
-
-	_cairo_traps_init (&traps);
-
-	status = _cairo_path_fixed_stroke_polygon_to_traps (path, style,
-						    ctm, ctm_inverse,
-						    tolerance, &traps);
-	if (unlikely (status)) {
-	    _cairo_traps_fini (&traps);
-	    goto finish;
-	}
-
-	status = _draw_traps (info.ctx, &info.setup, &traps);
-	_cairo_traps_fini (&traps);
-    } else {
-	if (!_is_continuous_single_line (path, style)) {
-	    status = _prevent_overlapping_strokes (info.ctx, &info.setup,
-						   composite, path, style, ctm);
-	    if (unlikely (status))
-		goto finish;
-	}
-
-	status =
-	    _cairo_path_fixed_stroke_to_shaper ((cairo_path_fixed_t *) path,
-						style,
-						ctm,
-						ctm_inverse,
-						tolerance,
-						_stroke_shaper_add_triangle,
-						_stroke_shaper_add_triangle_fan,
-						_stroke_shaper_add_quad,
-						&info);
+    if (!_is_continuous_single_line (path, style)) {
+	status = _prevent_overlapping_strokes (info.ctx, &info.setup,
+					       composite, path, style, ctm);
 	if (unlikely (status))
 	    goto finish;
     }
+
+	status =
+	_cairo_path_fixed_stroke_to_shaper ((cairo_path_fixed_t *) path,
+					    style,
+					    ctm,
+					    ctm_inverse,
+					    tolerance,
+					    _stroke_shaper_add_triangle,
+					    _stroke_shaper_add_triangle_fan,
+					    _stroke_shaper_add_quad,
+					    &info);
+
+    if (unlikely (status))
+	    goto finish;
+
 finish:
     _cairo_gl_composite_fini (&info.setup);
 
@@ -1026,7 +1012,6 @@ _cairo_gl_msaa_compositor_glyphs (const cairo_compositor_t	*compositor,
     _cairo_scaled_font_thaw_cache (scaled_font);
 
 finish:
-    if (src)
 	cairo_surface_destroy (src);
 
     return status;

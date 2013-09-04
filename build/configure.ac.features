@@ -411,6 +411,7 @@ AC_DEFUN([CAIRO_REPORT],
 	echo ""
 	echo "And the following internal features:"
 	echo "  pthread:       $use_pthread"
+	echo "  openmp:        $use_openmp"
 	echo "  gtk-doc:       $enable_gtk_doc"
 	echo "  gcov support:  $use_gcov"
 	echo "  symbol-lookup: $use_symbol_lookup"

@@ -19,6 +19,24 @@ enabled_cairo_boilerplate_cxx_sources = $(cairo_boilerplate_cxx_sources)
 enabled_cairo_boilerplate_sources = $(cairo_boilerplate_sources)
 
 
+all_cairo_boilerplate_private += $(cairo_boilerplate_tls_private) $(cairo_boilerplate_tls_headers)
+all_cairo_boilerplate_cxx_sources += $(cairo_boilerplate_tls_cxx_sources)
+all_cairo_boilerplate_sources += $(cairo_boilerplate_tls_sources)
+ifeq ($(CAIRO_HAS_TLS),1)
+enabled_cairo_boilerplate_private += $(cairo_boilerplate_tls_private) $(cairo_boilerplate_tls_headers)
+enabled_cairo_boilerplate_cxx_sources += $(cairo_boilerplate_tls_cxx_sources)
+enabled_cairo_boilerplate_sources += $(cairo_boilerplate_tls_sources)
+endif
+
+all_cairo_boilerplate_private += $(cairo_boilerplate_pthread_setspecific_private) $(cairo_boilerplate_pthread_setspecific_headers)
+all_cairo_boilerplate_cxx_sources += $(cairo_boilerplate_pthread_setspecific_cxx_sources)
+all_cairo_boilerplate_sources += $(cairo_boilerplate_pthread_setspecific_sources)
+ifeq ($(CAIRO_HAS_PTHREAD_SETSPECIFIC),1)
+enabled_cairo_boilerplate_private += $(cairo_boilerplate_pthread_setspecific_private) $(cairo_boilerplate_pthread_setspecific_headers)
+enabled_cairo_boilerplate_cxx_sources += $(cairo_boilerplate_pthread_setspecific_cxx_sources)
+enabled_cairo_boilerplate_sources += $(cairo_boilerplate_pthread_setspecific_sources)
+endif
+
 supported_cairo_boilerplate_headers += $(cairo_boilerplate_xlib_headers)
 all_cairo_boilerplate_headers += $(cairo_boilerplate_xlib_headers)
 all_cairo_boilerplate_private += $(cairo_boilerplate_xlib_private)
@@ -473,6 +491,15 @@ enabled_cairo_boilerplate_headers += $(cairo_boilerplate_user_headers)
 enabled_cairo_boilerplate_private += $(cairo_boilerplate_user_private)
 enabled_cairo_boilerplate_cxx_sources += $(cairo_boilerplate_user_cxx_sources)
 enabled_cairo_boilerplate_sources += $(cairo_boilerplate_user_sources)
+
+all_cairo_boilerplate_private += $(cairo_boilerplate_openmp_private) $(cairo_boilerplate_openmp_headers)
+all_cairo_boilerplate_cxx_sources += $(cairo_boilerplate_openmp_cxx_sources)
+all_cairo_boilerplate_sources += $(cairo_boilerplate_openmp_sources)
+ifeq ($(CAIRO_HAS_OPENMP),1)
+enabled_cairo_boilerplate_private += $(cairo_boilerplate_openmp_private) $(cairo_boilerplate_openmp_headers)
+enabled_cairo_boilerplate_cxx_sources += $(cairo_boilerplate_openmp_cxx_sources)
+enabled_cairo_boilerplate_sources += $(cairo_boilerplate_openmp_sources)
+endif
 
 all_cairo_boilerplate_private += $(cairo_boilerplate_pthread_private) $(cairo_boilerplate_pthread_headers)
 all_cairo_boilerplate_cxx_sources += $(cairo_boilerplate_pthread_cxx_sources)
