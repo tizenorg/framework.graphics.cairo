@@ -402,7 +402,8 @@ _cairo_gl_surface_create_scratch_for_texture (cairo_gl_context_t   *ctx,
 					      cairo_content_t	    content,
 					      GLuint		    tex,
 					      int		    width,
-					      int		    height)
+					      int		    height,
+					      cairo_bool_t set_tex_param)
 {
     cairo_gl_surface_t *surface;
 
@@ -418,10 +419,12 @@ _cairo_gl_surface_create_scratch_for_texture (cairo_gl_context_t   *ctx,
     surface->supports_stencil = TRUE;
 
     /* Create the texture used to store the surface's data. */
+    if (!set_tex_param) {
     _cairo_gl_context_activate (ctx, CAIRO_GL_TEX_TEMP);
     glBindTexture (ctx->tex_target, surface->tex);
     glTexParameteri (ctx->tex_target, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri (ctx->tex_target, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    }
 
     return &surface->base;
 }
@@ -440,7 +443,7 @@ _create_scratch_internal (cairo_gl_context_t *ctx,
     glGenTextures (1, &tex);
     surface = (cairo_gl_surface_t *)
 	_cairo_gl_surface_create_scratch_for_texture (ctx, content,
-						      tex, width, height);
+						      tex, width, height, FALSE);
     if (unlikely (surface->base.status))
 	return &surface->base;
 
@@ -685,7 +688,7 @@ cairo_gl_surface_create_for_texture (cairo_device_t	*abstract_device,
 
     surface = (cairo_gl_surface_t *)
 	_cairo_gl_surface_create_scratch_for_texture (ctx, content,
-						      tex, width, height);
+						      tex, width, height, TRUE);
     status = _cairo_gl_context_release (ctx, status);
 
     return &surface->base;
