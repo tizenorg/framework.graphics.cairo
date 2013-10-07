@@ -456,7 +456,10 @@ _create_scratch_internal (cairo_gl_context_t *ctx,
     default:
 	ASSERT_NOT_REACHED;
     case CAIRO_CONTENT_COLOR_ALPHA:
-	format = GL_RGBA;
+	if (ctx->can_read_bgra)
+	    format = GL_BGRA;
+	else
+	    format = GL_RGBA;
 	break;
     case CAIRO_CONTENT_ALPHA:
 	/* When using GL_ALPHA, compositing doesn't work properly, but for
@@ -476,7 +479,10 @@ _create_scratch_internal (cairo_gl_context_t *ctx,
 	 * specified.  So, we have to store RGBA, and fill the alpha
 	 * channel with 1 when blending.
 	 */
-	format = GL_RGBA;
+	if (ctx->can_read_bgra)
+	    format = GL_BGRA;
+	else
+	    format = GL_RGBA;
 	break;
     }
 
