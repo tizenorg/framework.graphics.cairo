@@ -2,12 +2,12 @@
 Name:       cairo
 Summary:    A vector graphics library
 Version:    1.12.14
-Release:    3
+Release:    10
 Group:      System/Libraries
 License:    LGPLv2 or MPLv1.1
 URL:        http://www.cairographics.org
 Source0:    http://cairographics.org/releases/%{name}-%{version}.tar.gz
-Source1001: packaging/cairo.manifest 
+Source1001: packaging/cairo.manifest
 
 Requires(post): /sbin/ldconfig
 Requires(postun): /sbin/ldconfig
@@ -24,9 +24,10 @@ BuildRequires:  pkgconfig(sm)
 BuildRequires:  pkgconfig(xt)
 BuildRequires:  pkgconfig(xcb)
 BuildRequires:  pkgconfig(xcb-render)
-BuildRequires:  pkgconfig(xcb-renderutil)
+#BuildRequires:  pkgconfig(xcb-renderutil)
 BuildRequires:  pkgconfig(xcb-shm)
 BuildRequires:  pkgconfig(opengl-es-20)
+BuildRequires:  pkgconfig(elementary)
 #BuildRequires:  pkgconfig(librsvg-2.0)
 BuildRequires:  binutils-devel
 BuildRequires:  which
@@ -58,9 +59,13 @@ NOCONFIGURE=1 ./autogen.sh
     --x-includes=%{_includedir} \
     --x-libraries=%{_libdir} \
     --disable-gtk-doc \
+%ifarch %ix86
+    --enable-xcb
+%else
     --enable-xcb \
     --enable-egl=yes \
     --enable-glesv2=yes
+%endif
 
 make %{?jobs:-j%jobs}
 
@@ -79,15 +84,11 @@ cat COPYING COPYING-LGPL-2.1 COPYING-MPL-1.1 > %{buildroot}/usr/share/license/%{
 %manifest cairo.manifest
 %{_libdir}/libcairo.so.*
 /usr/share/license/%{name}
-%exclude %{_libdir}/libcairo-*.so.*
+%{_libdir}/libcairo-*.so.*
 
 %files devel
 %manifest cairo.manifest
 %{_includedir}/*
 %{_libdir}/libcairo*.so
-%{_libdir}/libcairo-*.so.*
 %{_libdir}/pkgconfig/*
-%exclude %{_bindir}/cairo-trace
-%exclude %{_libdir}/cairo/libcairo-trace.so
-%exclude %{_libdir}/cairo/libcairo-trace.so.*
 

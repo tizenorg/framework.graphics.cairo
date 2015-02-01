@@ -227,9 +227,9 @@ _cairo_gl_dispatch_init_multisampling (cairo_gl_dispatch_t *dispatch,
      * extension, so we put one in the EXT slot and one in the real ES slot.*/
     cairo_gl_dispatch_name_t dispatch_name = CAIRO_GL_DISPATCH_NAME_CORE;
     if (gl_flavor == CAIRO_GL_FLAVOR_ES2) {
-	if (_cairo_gl_has_extension ("GL_EXT_multisampled_render_to_texture"))
+	/*if (_cairo_gl_has_extension ("GL_EXT_multisampled_render_to_texture"))
 	    dispatch_name = CAIRO_GL_DISPATCH_NAME_EXT;
-	else if (_cairo_gl_has_extension ("GL_IMG_multisampled_render_to_texture"))
+	else*/ if (_cairo_gl_has_extension ("GL_IMG_multisampled_render_to_texture"))
 	    dispatch_name = CAIRO_GL_DISPATCH_NAME_ES;
 	else if (_cairo_gl_has_extension ("GL_ANGLE_framebuffer_multisample") &&
 		 _cairo_gl_has_extension ("GL_ANGLE_framebuffer_blit"))

@@ -334,22 +334,22 @@ _cairo_gl_context_init (cairo_gl_context_t *ctx)
     }
 #endif
 
-#if CAIRO_HAS_GLESV2_SURFACE && defined(GL_MAX_SAMPLES_EXT)
-    if (is_gles && ctx->has_packed_depth_stencil &&
+/*#if CAIRO_HAS_GLESV2_SURFACE && defined(GL_MAX_SAMPLES_EXT)
+    if (is_gles && ctx->has_packed_depth_stencil && ctx->num_samples <= 1 &&
 	_cairo_gl_has_extension ("GL_EXT_multisampled_render_to_texture")) {
 	glGetIntegerv(GL_MAX_SAMPLES_EXT, &ctx->num_samples);
     }
-#endif
+#endif*/
 
 #if CAIRO_HAS_GLESV2_SURFACE && defined(GL_MAX_SAMPLES_IMG)
-    if (is_gles && ctx->has_packed_depth_stencil &&
+    if (is_gles && ctx->has_packed_depth_stencil && ctx->num_samples <= 1 &&
 	_cairo_gl_has_extension ("GL_IMG_multisampled_render_to_texture")) {
 	glGetIntegerv(GL_MAX_SAMPLES_IMG, &ctx->num_samples);
     }
 #endif
 
 #if CAIRO_HAS_GLESV2_SURFACE && defined (GL_MAX_SAMPLES_ANGLE)
-    if (is_gles && ctx->has_packed_depth_stencil &&
+    if (is_gles && ctx->has_packed_depth_stencil && ctx->num_samples <= 1 &&
 	_cairo_gl_has_extension ("GL_ANGLE_framebuffer_blit") &&
 	_cairo_gl_has_extension ("GL_ANGLE_framebuffer_multisample")) {
 	glGetIntegerv(GL_MAX_SAMPLES_ANGLE, &ctx->num_samples);
@@ -358,7 +358,7 @@ _cairo_gl_context_init (cairo_gl_context_t *ctx)
 #endif
 
 #if CAIRO_HAS_GLESV3_SURFACE
-    if (is_gles && ctx->has_packed_depth_stencil) {
+    if (is_gles && ctx->has_packed_depth_stencil && ctx->num_samples <= 1) {
 	glGetIntegerv(GL_MAX_SAMPLES, &ctx->num_samples);
     }
 #endif

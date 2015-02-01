@@ -905,14 +905,10 @@ test/pdiff/Makefile
 perf/Makefile
 perf/micro/Makefile
 util/Makefile
-util/cairo-fdr/Makefile
 util/cairo-gobject/Makefile
 util/cairo-missing/Makefile
 util/cairo-script/Makefile
 util/cairo-script/examples/Makefile
-util/cairo-sphinx/Makefile
-util/cairo-trace/Makefile
-util/cairo-trace/cairo-trace
 doc/Makefile
 doc/public/Makefile
 ])
