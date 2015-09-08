@@ -926,6 +926,9 @@ cairo_truetype_font_update_entry (cairo_truetype_font_t *font,
     uint32_t *entry;
 
     entry = _cairo_array_index (&font->output, 12 + 16 * index);
+    if (entry == NULL)
+	return;
+
     entry[0] = cpu_to_be32 ((uint32_t)tag);
     entry[1] = cpu_to_be32 (cairo_truetype_font_calculate_checksum (font, start, end));
     entry[2] = cpu_to_be32 ((uint32_t)start);
@@ -978,6 +981,11 @@ cairo_truetype_font_generate (cairo_truetype_font_t  *font,
     checksum =
 	0xb1b0afba - cairo_truetype_font_calculate_checksum (font, 0, end);
     checksum_location = _cairo_array_index (&font->output, font->checksum_index);
+    if (checksum_location == NULL) {
+	status = _cairo_error (CAIRO_STATUS_NULL_POINTER);
+	goto FAIL;
+    }
+
     *checksum_location = cpu_to_be32 (checksum);
 
     *data = _cairo_array_index (&font->output, 0);

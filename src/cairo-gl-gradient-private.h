@@ -51,12 +51,21 @@
 
 #include "cairo-gl.h"
 
-#if CAIRO_HAS_GL_SURFACE
-#include <GL/gl.h>
-#include <GL/glext.h>
-#elif CAIRO_HAS_GLESV2_SURFACE
-#include <GLES2/gl2.h>
-#include <GLES2/gl2ext.h>
+#if 0
+#if CAIRO_HAS_EVASGL_SURFACE
+#include <Evas_GL.h>
+#else
+	#if CAIRO_HAS_GL_SURFACE
+	#include <GL/gl.h>
+	#include <GL/glext.h>
+	#elif CAIRO_HAS_GLESV2_SURFACE
+	#include <GLES2/gl2.h>
+	#include <GLES2/gl2ext.h>
+	#elif CAIRO_HAS_GLESV3_SURFACE
+	#include <GLES3/gl3.h>
+	#include <GLES3/gl3ext.h>
+	#endif
+#endif
 #endif
 
 #define CAIRO_GL_GRADIENT_CACHE_SIZE 4096
@@ -68,7 +77,7 @@ typedef struct _cairo_gl_gradient {
     cairo_cache_entry_t           cache_entry;
     cairo_reference_count_t       ref_count;
     cairo_device_t               *device; /* NB: we don't hold a reference */
-    GLuint                        tex;
+    unsigned int            tex;
     unsigned int	          n_stops;
     const cairo_gradient_stop_t  *stops;
     cairo_gradient_stop_t         stops_embedded[1];

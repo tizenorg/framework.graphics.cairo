@@ -173,6 +173,12 @@ _wgl_dummy_ctx (cairo_wgl_context_t *ctx)
     return CAIRO_STATUS_SUCCESS;
 }
 
+static cairo_gl_generic_func_t
+_cairo_wgl_get_proc_address (void *data, const char *name)
+{
+    return wglGetProcAddress (name);
+}
+
 cairo_device_t *
 cairo_wgl_device_create (HGLRC rc)
 {
@@ -200,7 +206,8 @@ cairo_wgl_device_create (HGLRC rc)
     ctx->base.destroy = _wgl_destroy;
 
     status = _cairo_gl_dispatch_init (&ctx->base.dispatch,
-				      (cairo_gl_get_proc_addr_func_t) wglGetProcAddress);
+				      (cairo_gl_get_proc_addr_func_t) _cairo_wgl_get_proc_address,
+				      NULL);
     if (unlikely (status)) {
 	free (ctx);
 	return _cairo_gl_context_create_in_error (status);

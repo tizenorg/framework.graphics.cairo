@@ -1339,6 +1339,22 @@ typedef enum _cairo_hint_metrics {
 } cairo_hint_metrics_t;
 
 /**
+ * cairo_font_color_t:
+ * @CAIRO_FONT_COLOR_DEFAULT: default color, if the font has color,
+ *	use font's color, otherwise, use user specified, since 1.12.14
+ * @CAIRO_FONT_COLOR_USER: always uses user's color, since 1.0
+ *
+ * When rendering text, specifies whether to use user's color set
+ * by cairo_set_source_XXXX() or use glyph's builtin color
+ *
+ * Since: 1.4
+ **/
+ typedef enum _cairo_font_color {
+	CAIRO_FONT_COLOR_DEFAULT,
+	CAIRO_FONT_COLOR_USER
+ } cairo_font_color_t;
+
+ /**
  * cairo_font_options_t:
  *
  * An opaque structure holding all options that are used when
@@ -1407,6 +1423,13 @@ cairo_font_options_set_hint_metrics (cairo_font_options_t *options,
 				     cairo_hint_metrics_t  hint_metrics);
 cairo_public cairo_hint_metrics_t
 cairo_font_options_get_hint_metrics (const cairo_font_options_t *options);
+
+cairo_public void
+cairo_font_options_set_font_color (cairo_font_options_t *options,
+cairo_font_color_t  font_color);
+
+cairo_public cairo_font_color_t
+cairo_font_options_get_font_color (const cairo_font_options_t *options);
 
 /* This interface is for dealing with text as text, not caring about the
    font object inside the the cairo_t. */
@@ -2382,7 +2405,8 @@ typedef enum _cairo_surface_type {
     CAIRO_SURFACE_TYPE_XML,
     CAIRO_SURFACE_TYPE_SKIA,
     CAIRO_SURFACE_TYPE_SUBSURFACE,
-    CAIRO_SURFACE_TYPE_COGL
+    CAIRO_SURFACE_TYPE_COGL,
+    CAIRO_SURFACE_TYPE_TG,
 } cairo_surface_type_t;
 
 cairo_public cairo_surface_type_t
@@ -2906,6 +2930,49 @@ cairo_pattern_set_filter (cairo_pattern_t *pattern, cairo_filter_t filter);
 
 cairo_public cairo_filter_t
 cairo_pattern_get_filter (cairo_pattern_t *pattern);
+
+cairo_public cairo_status_t
+cairo_pattern_set_sigma (cairo_pattern_t *pattern,
+                         const double     x_sigma,
+                         const double     y_sigma);
+
+cairo_public cairo_status_t
+cairo_pattern_get_sigma (cairo_pattern_t *pattern,
+                         double          *x_sigma,
+                         double          *y_sigma);
+
+/* since 1.12.14 */
+typedef enum _cairo_shadow_type {
+    CAIRO_SHADOW_NONE = 0,
+    CAIRO_SHADOW_DROP,
+    CAIRO_SHADOW_INSET
+} cairo_shadow_type_t;
+
+cairo_public void
+cairo_set_shadow (cairo_t *cr, cairo_shadow_type_t shadow);
+
+cairo_public void
+cairo_set_shadow_offset (cairo_t *cr, double x_offset, double y_offset);
+
+cairo_public void
+cairo_set_shadow_rgb (cairo_t *cr, double red, double green, double blue);
+
+cairo_public void
+cairo_set_shadow_rgba (cairo_t *cr, double red, double green,
+		       double blue, double alpha);
+
+cairo_public void
+cairo_set_shadow_blur (cairo_t *cr, double x_blur, double y_blur);
+
+cairo_public void
+cairo_set_draw_shadow_only (cairo_t *cr, cairo_bool_t draw_shadow_only);
+
+cairo_public void
+cairo_shadow_enable_cache (cairo_t *cr, cairo_bool_t enable);
+
+cairo_public void
+cairo_set_path_is_inset_shadow_with_spread (cairo_t *cr,
+					    cairo_bool_t is_spread_path);
 
 cairo_public cairo_status_t
 cairo_pattern_get_rgba (cairo_pattern_t *pattern,

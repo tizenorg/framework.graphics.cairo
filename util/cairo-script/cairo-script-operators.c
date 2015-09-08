@@ -52,7 +52,14 @@
 #include <math.h>
 #include <limits.h> /* INT_MAX */
 #include <assert.h>
+
+#if HAVE_ZLIB
 #include <zlib.h>
+#endif
+
+#if HAVE_LZO
+#include <lzo/lzo2a.h>
+#endif
 
 #ifdef HAVE_MMAP
 # ifdef HAVE_UNISTD_H
@@ -1756,17 +1763,37 @@ inflate_string (csi_t *ctx, csi_string_t *src)
     if (bytes == NULL)
 	return NULL;
 
-    if (uncompress ((Bytef *) bytes, &len,
-		    (Bytef *) src->string, src->len) != Z_OK)
-    {
-	_csi_free (ctx, bytes);
-	bytes = NULL;
-    }
-    else
-    {
-	bytes[len] = '\0';
+    switch (src->method) {
+    default:
+    case NONE:
+	free (bytes);
+	return NULL;
+
+#if HAVE_ZLIB
+    case ZLIB:
+	if (uncompress ((Bytef *) bytes, &len,
+			(Bytef *) src->string, src->len) != Z_OK)
+	{
+	    _csi_free (ctx, bytes);
+	    return NULL;
+	}
+	break;
+#endif
+
+#if HAVE_LZO
+    case LZO:
+	if (lzo2a_decompress ((Bytef *) src->string, src->len,
+			      (Bytef *) bytes, &len,
+			      NULL))
+	{
+	    _csi_free (ctx, bytes);
+	    return NULL;
+	}
+	break;
+#endif
     }
 
+    bytes[len] = '\0';
     return bytes;
 }
 
@@ -1808,6 +1835,9 @@ _ft_create_for_source (csi_t *ctx,
     }
 
     data = _csi_slab_alloc (ctx, sizeof (*data));
+    if (data == NULL)
+	return _csi_error (CSI_STATUS_NO_MEMORY);
+
     data->bytes = NULL;
     data->source = source;
 
@@ -1922,6 +1952,7 @@ _ft_create_for_pattern (csi_t *ctx,
     if (bytes != tmpl.bytes)
 	_csi_free (ctx, bytes);
 
+retry:
     resolved = pattern;
     if (cairo_version () < CAIRO_VERSION_ENCODE (1, 9, 0)) {
 	/* prior to 1.9, you needed to pass a resolved pattern */
@@ -1933,11 +1964,33 @@ _ft_create_for_pattern (csi_t *ctx,
     }
 
     font_face = cairo_ft_font_face_create_for_pattern (resolved);
-    FcPatternDestroy (resolved);
     if (resolved != pattern)
-	FcPatternDestroy (pattern);
+	FcPatternDestroy (resolved);
+
+    if (cairo_font_face_status (font_face)) {
+	char *filename = NULL;
+
+	/* Try a manual fallback process by eliminating specific requests */
+
+	if (FcPatternGetString (pattern,
+				FC_FILE, 0,
+				(FcChar8 **) &filename) == FcResultMatch) {
+	    FcPatternDel (pattern, FC_FILE);
+	    if(font_face)
+		cairo_font_face_destroy (font_face);
+	    goto retry;
+	}
+    }
+
+    FcPatternDestroy (pattern);
 
     data = _csi_slab_alloc (ctx, sizeof (*data));
+    if (_csi_unlikely (data == NULL)) {
+	if(font_face)
+	    cairo_font_face_destroy (font_face);
+	return _csi_error (CSI_STATUS_NO_MEMORY);
+    }
+
     ctx->_faces = _csi_list_prepend (ctx->_faces, &data->blob.list);
     data->ctx = cairo_script_interpreter_reference (ctx);
     data->blob.hash = tmpl.hash;
@@ -2850,7 +2903,8 @@ _ifelse (csi_t *ctx)
 }
 
 static csi_status_t
-_image_read_raw (csi_file_t *src,
+_image_read_raw (csi_t *ctx,
+		 csi_object_t *src,
 		 cairo_format_t format,
 		 int width, int height,
 		 cairo_surface_t **image_out)
@@ -2860,20 +2914,36 @@ _image_read_raw (csi_file_t *src,
     int rem, len, ret, x, rowlen, instride, stride;
     cairo_status_t status;
 
-    stride = cairo_format_stride_for_width (format, width);
-    data = malloc (stride * height);
-    if (data == NULL)
-	return CAIRO_STATUS_NO_MEMORY;
+    if (width == 0 || height == 0) {
+	*image_out = cairo_image_surface_create (format, 0, 0);
+	return CSI_STATUS_SUCCESS;
+    }
 
-    image = cairo_image_surface_create_for_data (data, format,
-						 width, height, stride);
-    status = cairo_surface_set_user_data (image,
-					  (const cairo_user_data_key_t *) image,
-					  data, free);
-    if (status) {
-	cairo_surface_destroy (image);
-	free (image);
-	return status;
+    if (ctx->hooks.create_source_image != NULL) {
+	image = ctx->hooks.create_source_image (ctx->hooks.closure,
+						format, width, height,
+						0);
+
+	stride = cairo_image_surface_get_stride (image);
+	data = cairo_image_surface_get_data (image);
+	if (data == NULL)
+	    return CAIRO_STATUS_NULL_POINTER;
+	} else {
+	stride = cairo_format_stride_for_width (format, width);
+	data = malloc (stride * height);
+	if (data == NULL)
+	    return CAIRO_STATUS_NO_MEMORY;
+
+	image = cairo_image_surface_create_for_data (data, format,
+						     width, height, stride);
+	status = cairo_surface_set_user_data (image,
+					      (const cairo_user_data_key_t *) image,
+					      data, free);
+	if (status) {
+	    cairo_surface_destroy (image);
+	    free (image);
+	    return status;
+	}
     }
 
     switch (format) {
@@ -2899,57 +2969,188 @@ _image_read_raw (csi_file_t *src,
     }
     len = rowlen * height;
 
-    bp = data;
-    rem = len;
-    while (rem) {
-	ret = csi_file_read (src, bp, rem);
-	if (_csi_unlikely (ret == 0)) {
+    if (rowlen == instride &&
+	src->type == CSI_OBJECT_TYPE_STRING &&
+	len == src->datum.string->deflate)
+    {
+	csi_string_t *s = src->datum.string;
+	unsigned long out = s->deflate;
+
+	switch (s->method) {
+	default:
+	case NONE:
+err_decompress:
 	    cairo_surface_destroy (image);
 	    return _csi_error (CSI_STATUS_READ_ERROR);
+
+#if HAVE_ZLIB
+	case ZLIB:
+	    if (uncompress ((Bytef *) data, &out,
+			    (Bytef *) s->string, s->len) != Z_OK)
+		goto err_decompress;
+	    break;
+#endif
+
+#if HAVE_LZO
+	case LZO:
+	    if (lzo2a_decompress ((Bytef *) s->string, s->len,
+				  (Bytef *) data, &out,
+				  NULL))
+		goto err_decompress;
+	    break;
+#endif
 	}
-	rem -= ret;
-	bp += ret;
     }
+    else
+    {
+	csi_object_t file;
 
-    if (len != height * stride) {
-	while (--height) {
-	    uint8_t *row = data + height * stride;
+	status = csi_object_as_file (ctx, src, &file);
+	if (_csi_unlikely (status)) {
+	    cairo_surface_destroy (image);
+	    return status;
+	}
 
-	    /* XXX pixel conversion */
+	bp = data;
+	rem = len;
+	while (rem) {
+	    ret = csi_file_read (file.datum.file, bp, rem);
+	    if (_csi_unlikely (ret == 0)) {
+		cairo_surface_destroy (image);
+		return _csi_error (CSI_STATUS_READ_ERROR);
+	    }
+	    rem -= ret;
+	    bp += ret;
+	}
+
+	if (len != height * stride) {
+	    while (--height) {
+		uint8_t *row = data + height * stride;
+
+		/* XXX pixel conversion */
+		switch (format) {
+		case CAIRO_FORMAT_A1:
+		    for (x = rowlen; x--; ) {
+			uint8_t byte = *--bp;
+			row[x] = CSI_BITSWAP8_IF_LITTLE_ENDIAN (byte);
+		    }
+		    break;
+		case CAIRO_FORMAT_A8:
+		    for (x = width; x--; )
+			row[x] = *--bp;
+		    break;
+		case CAIRO_FORMAT_RGB16_565:
+		    for (x = width; x--; ) {
+#ifdef WORDS_BIGENDIAN
+			row[2*x + 1] = *--bp;
+			row[2*x + 0] = *--bp;
+#else
+			row[2*x + 0] = *--bp;
+			row[2*x + 1] = *--bp;
+#endif
+		    }
+		    break;
+		case CAIRO_FORMAT_RGB24:
+		    for (x = width; x--; ) {
+#ifdef WORDS_BIGENDIAN
+			row[4*x + 3] = *--bp;
+			row[4*x + 2] = *--bp;
+			row[4*x + 1] = *--bp;
+			row[4*x + 0] = 0xff;
+#else
+			row[4*x + 0] = *--bp;
+			row[4*x + 1] = *--bp;
+			row[4*x + 2] = *--bp;
+			row[4*x + 3] = 0xff;
+#endif
+		    }
+		    break;
+		case CAIRO_FORMAT_RGB30:
+		case CAIRO_FORMAT_INVALID:
+		case CAIRO_FORMAT_ARGB32:
+		    /* stride == width */
+		    break;
+		}
+
+		memset (row + instride, 0, stride - instride);
+	    }
+
+	    /* need to treat last row carefully */
 	    switch (format) {
 	    case CAIRO_FORMAT_A1:
 		for (x = rowlen; x--; ) {
 		    uint8_t byte = *--bp;
-		    row[x] = CSI_BITSWAP8_IF_LITTLE_ENDIAN (byte);
+		    data[x] = CSI_BITSWAP8_IF_LITTLE_ENDIAN (byte);
 		}
 		break;
 	    case CAIRO_FORMAT_A8:
 		for (x = width; x--; )
-		    row[x] = *--bp;
+		    data[x] = *--bp;
 		break;
 	    case CAIRO_FORMAT_RGB16_565:
 		for (x = width; x--; ) {
 #ifdef WORDS_BIGENDIAN
-		    row[2*x + 1] = *--bp;
-		    row[2*x + 0] = *--bp;
+		    data[2*x + 1] = *--bp;
+		    data[2*x + 0] = *--bp;
 #else
-		    row[2*x + 0] = *--bp;
-		    row[2*x + 1] = *--bp;
+		    data[2*x + 0] = *--bp;
+		    data[2*x + 1] = *--bp;
 #endif
 		}
 		break;
 	    case CAIRO_FORMAT_RGB24:
-		for (x = width; x--; ) {
+		for (x = width; --x>1; ) {
 #ifdef WORDS_BIGENDIAN
-		    row[4*x + 3] = *--bp;
-		    row[4*x + 2] = *--bp;
-		    row[4*x + 1] = *--bp;
-		    row[4*x + 0] = 0xff;
+		    data[4*x + 3] = *--bp;
+		    data[4*x + 2] = *--bp;
+		    data[4*x + 1] = *--bp;
+		    data[4*x + 0] = 0xff;
 #else
-		    row[4*x + 0] = *--bp;
-		    row[4*x + 1] = *--bp;
-		    row[4*x + 2] = *--bp;
-		    row[4*x + 3] = 0xff;
+		    data[4*x + 0] = *--bp;
+		    data[4*x + 1] = *--bp;
+		    data[4*x + 2] = *--bp;
+		    data[4*x + 3] = 0xff;
+#endif
+		}
+		if (width > 1) {
+		    uint8_t rgb[2][3];
+		    /* shuffle the last couple of overlapping pixels */
+		    rgb[1][0] = data[5];
+		    rgb[1][1] = data[4];
+		    rgb[1][2] = data[3];
+		    rgb[0][0] = data[2];
+		    rgb[0][1] = data[1];
+		    rgb[0][2] = data[0];
+#ifdef WORDS_BIGENDIAN
+		    data[4] = 0xff;
+		    data[5] = rgb[1][2];
+		    data[6] = rgb[1][1];
+		    data[7] = rgb[1][0];
+		    data[0] = 0xff;
+		    data[1] = rgb[0][2];
+		    data[2] = rgb[0][1];
+		    data[3] = rgb[0][0];
+#else
+		    data[7] = 0xff;
+		    data[6] = rgb[1][2];
+		    data[5] = rgb[1][1];
+		    data[4] = rgb[1][0];
+		    data[3] = 0xff;
+		    data[2] = rgb[0][2];
+		    data[1] = rgb[0][1];
+		    data[0] = rgb[0][0];
+#endif
+		} else {
+#ifdef WORDS_BIGENDIAN
+		    data[0] = 0xff;
+		    data[1] = data[0];
+		    data[2] = data[1];
+		    data[3] = data[2];
+#else
+		    data[3] = data[0];
+		    data[0] = data[2];
+		    data[2] = data[3];
+		    data[3] = 0xff;
 #endif
 		}
 		break;
@@ -2959,132 +3160,45 @@ _image_read_raw (csi_file_t *src,
 		/* stride == width */
 		break;
 	    }
-
-	    memset (row + instride, 0, stride - instride);
-	}
-
-	/* need to treat last row carefully */
-	switch (format) {
-	case CAIRO_FORMAT_A1:
-	    for (x = rowlen; x--; ) {
-		uint8_t byte = *--bp;
-		data[x] = CSI_BITSWAP8_IF_LITTLE_ENDIAN (byte);
-	    }
-	    break;
-	case CAIRO_FORMAT_A8:
-	    for (x = width; x--; )
-		data[x] = *--bp;
-	    break;
-	case CAIRO_FORMAT_RGB16_565:
-	    for (x = width; x--; ) {
-#ifdef WORDS_BIGENDIAN
-		data[2*x + 1] = *--bp;
-		data[2*x + 0] = *--bp;
-#else
-		data[2*x + 0] = *--bp;
-		data[2*x + 1] = *--bp;
-#endif
-	    }
-	    break;
-	case CAIRO_FORMAT_RGB24:
-	    for (x = width; --x>1; ) {
-#ifdef WORDS_BIGENDIAN
-		data[4*x + 3] = *--bp;
-		data[4*x + 2] = *--bp;
-		data[4*x + 1] = *--bp;
-		data[4*x + 0] = 0xff;
-#else
-		data[4*x + 0] = *--bp;
-		data[4*x + 1] = *--bp;
-		data[4*x + 2] = *--bp;
-		data[4*x + 3] = 0xff;
-#endif
-	    }
-	    if (width > 1) {
-		uint8_t rgb[2][3];
-		/* shuffle the last couple of overlapping pixels */
-		rgb[1][0] = data[5];
-		rgb[1][1] = data[4];
-		rgb[1][2] = data[3];
-		rgb[0][0] = data[2];
-		rgb[0][1] = data[1];
-		rgb[0][2] = data[0];
-#ifdef WORDS_BIGENDIAN
-		data[4] = 0xff;
-		data[5] = rgb[1][2];
-		data[6] = rgb[1][1];
-		data[7] = rgb[1][0];
-		data[0] = 0xff;
-		data[1] = rgb[0][2];
-		data[2] = rgb[0][1];
-		data[3] = rgb[0][0];
-#else
-		data[7] = 0xff;
-		data[6] = rgb[1][2];
-		data[5] = rgb[1][1];
-		data[4] = rgb[1][0];
-		data[3] = 0xff;
-		data[2] = rgb[0][2];
-		data[1] = rgb[0][1];
-		data[0] = rgb[0][0];
-#endif
-	    } else {
-#ifdef WORDS_BIGENDIAN
-		data[0] = 0xff;
-		data[1] = data[0];
-		data[2] = data[1];
-		data[3] = data[2];
-#else
-		data[3] = data[0];
-		data[0] = data[2];
-		data[2] = data[3];
-		data[3] = 0xff;
-#endif
-	    }
-	    break;
-	case CAIRO_FORMAT_RGB30:
-	case CAIRO_FORMAT_INVALID:
-	case CAIRO_FORMAT_ARGB32:
-	    /* stride == width */
-	    break;
-	}
-	memset (data + instride, 0, stride - instride);
-    } else {
+	    memset (data + instride, 0, stride - instride);
+	} else {
 #ifndef WORDS_BIGENDIAN
-	switch (format) {
-	case CAIRO_FORMAT_A1:
-	    for (x = 0; x < len; x++) {
-		uint8_t byte = data[x];
-		data[x] = CSI_BITSWAP8_IF_LITTLE_ENDIAN (byte);
-	    }
-	    break;
-	case CAIRO_FORMAT_RGB16_565:
-	    {
-		uint32_t *rgba = (uint32_t *) data;
-		for (x = len/2; x--; rgba++) {
-		    *rgba = bswap_16 (*rgba);
+	    switch (format) {
+	    case CAIRO_FORMAT_A1:
+		for (x = 0; x < len; x++) {
+		    uint8_t byte = data[x];
+		    data[x] = CSI_BITSWAP8_IF_LITTLE_ENDIAN (byte);
 		}
-	    }
-	    break;
-	case CAIRO_FORMAT_ARGB32:
-	    {
-		uint32_t *rgba = (uint32_t *) data;
-		for (x = len/4; x--; rgba++) {
-		    *rgba = bswap_32 (*rgba);
+		break;
+	    case CAIRO_FORMAT_RGB16_565:
+		{
+		    uint32_t *rgba = (uint32_t *) data;
+		    for (x = len/2; x--; rgba++) {
+			*rgba = bswap_16 (*rgba);
+		    }
 		}
+		break;
+	    case CAIRO_FORMAT_ARGB32:
+		{
+		    uint32_t *rgba = (uint32_t *) data;
+		    for (x = len/4; x--; rgba++) {
+			*rgba = bswap_32 (*rgba);
+		    }
+		}
+		break;
+
+	    case CAIRO_FORMAT_A8:
+		break;
+
+	    case CAIRO_FORMAT_RGB30:
+	    case CAIRO_FORMAT_RGB24:
+	    case CAIRO_FORMAT_INVALID:
+	    default:
+		break;
 	    }
-	    break;
-
-	case CAIRO_FORMAT_A8:
-	    break;
-
-	case CAIRO_FORMAT_RGB30:
-	case CAIRO_FORMAT_RGB24:
-	case CAIRO_FORMAT_INVALID:
-	default:
-	    break;
-	}
 #endif
+	}
+	csi_object_free (ctx, &file);
     }
 
     cairo_surface_mark_dirty (image);
@@ -3261,25 +3375,26 @@ _image_load_from_dictionary (csi_t *ctx,
 		mime_type = MIME_TYPE_PNG;
 	}
 
-	status = csi_object_as_file (ctx, &obj, &file);
-	if (_csi_unlikely (status))
-	    return status;
 
 	/* XXX hook for general mime-type decoder */
 
 	switch (mime_type) {
 	case MIME_TYPE_NONE:
-	    status = _image_read_raw (file.datum.file,
-				      format, width, height, &image);
+	    status = _image_read_raw (ctx, &obj, format, width, height, &image);
 	    break;
 	case MIME_TYPE_PNG:
+	    status = csi_object_as_file (ctx, &obj, &file);
+	    if (_csi_unlikely (status))
+		return status;
+
 	    status = _image_read_png (file.datum.file, &image);
+	    csi_object_free (ctx, &file);
 	    break;
 	}
-	csi_object_free (ctx, &file);
-	if (_csi_unlikely (status))
+	if (_csi_unlikely (status)) {
+	    cairo_surface_destroy (image);
 	    return status;
-
+	}
 	image = _image_cached (ctx, image);
     } else
 	image = cairo_image_surface_create (format, width, height);
@@ -3303,8 +3418,10 @@ _image (csi_t *ctx)
 	return status;
 
     status = _image_load_from_dictionary (ctx, dict, &image);
-    if (_csi_unlikely (status))
+    if (_csi_unlikely (status)) {
+	cairo_surface_destroy (image);
 	return status;
+    }
 
     pop (1);
     obj.type = CSI_OBJECT_TYPE_SURFACE;
@@ -3675,8 +3792,8 @@ _map_to_image (csi_t *ctx)
     }
 
     obj.type = CSI_OBJECT_TYPE_SURFACE;
-    obj.datum.surface = cairo_surface_map_to_image (surface, r);
-    pop (2);
+    obj.datum.surface = cairo_surface_reference (cairo_surface_map_to_image (surface, r));
+    pop (1);
     return push (&obj);
 }
 
@@ -3697,7 +3814,7 @@ _unmap_image (csi_t *ctx)
 
     cairo_surface_unmap_image (surface, image);
 
-    pop (2);
+    pop (1);
     return CSI_STATUS_SUCCESS;
 }
 
@@ -5241,7 +5358,8 @@ _set_source_image (csi_t *ctx)
     csi_status_t status;
     cairo_surface_t *surface;
     cairo_surface_t *source;
-
+    unsigned char *image_surface_data;
+    unsigned char *source_data;
     check (2);
 
     status = _csi_ostack_get_surface (ctx, 0, &source);
@@ -5255,11 +5373,28 @@ _set_source_image (csi_t *ctx)
      * principally to remove the pixman ops from the profiles.
      */
     if (_csi_likely (_matching_images (surface, source))) {
-	cairo_surface_flush (surface);
-	memcpy (cairo_image_surface_get_data (surface),
-		cairo_image_surface_get_data (source),
-		cairo_image_surface_get_height (source) * cairo_image_surface_get_stride (source));
-	cairo_surface_mark_dirty (surface);
+	if (cairo_surface_get_reference_count (surface) == 1 &&
+	    cairo_surface_get_reference_count (source) == 1)
+	{
+	    _csi_peek_ostack (ctx, 0)->datum.surface = surface;
+	    _csi_peek_ostack (ctx, 1)->datum.surface = source;
+	}
+	else
+	{
+	    cairo_surface_flush (surface);
+	    image_surface_data = cairo_image_surface_get_data (surface);
+	    if (image_surface_data == NULL)
+		return _csi_error (CSI_STATUS_NULL_POINTER);
+
+	    source_data = cairo_image_surface_get_data (source);
+	    if (source_data == NULL)
+		return _csi_error (CSI_STATUS_NULL_POINTER);
+
+	    memcpy (image_surface_data,
+		    source_data,
+		    cairo_image_surface_get_height (source) * cairo_image_surface_get_stride (source));
+	    cairo_surface_mark_dirty (surface);
+	}
     } else {
 	cairo_t *cr;
 
@@ -5730,14 +5865,23 @@ _show_text_glyphs (csi_t *ctx)
     }
 
     status = _csi_ostack_get_array (ctx, 2, &array);
-    if (_csi_unlikely (status))
+    if (_csi_unlikely (status)) {
+	if (clusters != stack_clusters)
+	    _csi_free (ctx, clusters);
 	return status;
+    }
     status = _csi_ostack_get_string (ctx, 3, &utf8_string);
-    if (_csi_unlikely (status))
+    if (_csi_unlikely (status)) {
+	if (clusters != stack_clusters)
+	    _csi_free (ctx, clusters);
 	return status;
+    }
     status = _csi_ostack_get_context (ctx, 4, &cr);
-    if (_csi_unlikely (status))
+    if (_csi_unlikely (status)) {
+	if (clusters != stack_clusters)
+	    _csi_free (ctx, clusters);
 	return status;
+    }
 
     /* count glyphs */
     nglyphs = 0;
@@ -5755,16 +5899,24 @@ _show_text_glyphs (csi_t *ctx)
     }
     if (nglyphs == 0) {
 	pop (4);
+	if (clusters != stack_clusters)
+	    _csi_free (ctx, clusters);
 	return CSI_STATUS_SUCCESS;
     }
 
     if (nglyphs > ARRAY_LENGTH (stack_glyphs)) {
-	if (_csi_unlikely ((unsigned) nglyphs >= INT_MAX / sizeof (cairo_glyph_t)))
+	if (_csi_unlikely ((unsigned) nglyphs >= INT_MAX / sizeof (cairo_glyph_t))) {
+	    if (clusters != stack_clusters)
+		_csi_free (ctx, clusters);
 	    return _csi_error (CSI_STATUS_NO_MEMORY);
+	}
 
 	glyphs = _csi_alloc (ctx, sizeof (cairo_glyph_t) * nglyphs);
-	if (_csi_unlikely (glyphs == NULL))
+	if (_csi_unlikely (glyphs == NULL)) {
+	    if (clusters != stack_clusters)
+		_csi_free (ctx, clusters);
 	    return _csi_error (CSI_STATUS_NO_MEMORY);
+	}
     } else
 	glyphs = stack_glyphs;
 
@@ -5956,6 +6108,7 @@ _surface (csi_t *ctx)
 	status = _image_load_from_dictionary (ctx, dict, &image);
 	if (_csi_unlikely (status)) {
 	    cairo_surface_destroy (surface);
+	    cairo_surface_destroy (image);
 	    return status;
 	}
 

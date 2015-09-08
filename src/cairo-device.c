@@ -36,6 +36,7 @@
 #include "cairoint.h"
 #include "cairo-device-private.h"
 #include "cairo-error-private.h"
+#include "cairo-list-inline.h"
 
 /**
  * SECTION:cairo-device
@@ -179,6 +180,9 @@ _cairo_device_init (cairo_device_t *device,
     device->finished = FALSE;
 
     _cairo_user_data_array_init (&device->user_data);
+
+    cairo_list_init (&device->shadow_caches);
+    device->shadow_caches_size = 0;
 }
 
 /**
@@ -337,6 +341,19 @@ cairo_device_destroy (cairo_device_t *device)
     assert (CAIRO_REFERENCE_COUNT_HAS_REFERENCE (&device->ref_count));
     if (! _cairo_reference_count_dec_and_test (&device->ref_count))
 	return;
+
+    while (! cairo_list_is_empty (&device->shadow_caches)) {
+	cairo_shadow_cache_t *shadow;
+
+	shadow = cairo_list_first_entry (&device->shadow_caches,
+					 cairo_shadow_cache_t,
+					 link);
+
+	cairo_list_del (&shadow->link);
+	cairo_surface_destroy (shadow->surface);
+	free (shadow);
+    }
+    device->shadow_caches_size = 0;
 
     cairo_device_finish (device);
 

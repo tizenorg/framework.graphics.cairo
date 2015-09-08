@@ -271,6 +271,12 @@ _csi_hash_table_manage (csi_hash_table_t *hash_table)
 	    hash_table->entries[i] = DEAD_ENTRY;
 
 	    pos = _csi_hash_table_lookup_unique_key (&tmp, entry);
+	    if (pos == NULL) {
+		if (realloc)
+		    free (tmp.entries);
+		return _csi_error (CAIRO_STATUS_NULL_POINTER);
+	    }
+
 	    if (ENTRY_IS_FREE (*pos))
 		hash_table->used_entries++;
 
@@ -375,6 +381,9 @@ _csi_hash_table_insert (csi_hash_table_t *hash_table,
 
     entry = _csi_hash_table_lookup_unique_key (hash_table,
 					       key_and_value);
+    if (entry == NULL)
+	return CAIRO_STATUS_NULL_POINTER;
+
     if (ENTRY_IS_FREE (*entry))
 	hash_table->used_entries++;
 
@@ -426,7 +435,11 @@ void
 _csi_hash_table_remove (csi_hash_table_t *hash_table,
 			  csi_hash_entry_t *key)
 {
-    *_csi_hash_table_lookup_exact_key (hash_table, key) = DEAD_ENTRY;
+    csi_hash_entry_t **entry = _csi_hash_table_lookup_exact_key (hash_table, key);
+    if (entry == NULL)
+	return;
+
+    *entry = DEAD_ENTRY;
     hash_table->live_entries--;
 
     /* Check for table resize. Don't do this when iterating as this will

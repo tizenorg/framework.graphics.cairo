@@ -84,23 +84,19 @@ _cairo_surface_subsurface_create_similar_image (void *other,
 							   width, height);
 }
 
-static cairo_surface_t *
+static cairo_image_surface_t *
 _cairo_surface_subsurface_map_to_image (void *abstract_surface,
 					const cairo_rectangle_int_t *extents)
 {
     cairo_surface_subsurface_t *surface = abstract_surface;
     cairo_rectangle_int_t target_extents;
 
-    if (surface->target->backend->map_to_image == NULL)
-	return NULL;
-
     target_extents.x = extents->x + surface->extents.x;
     target_extents.y = extents->y + surface->extents.y;
     target_extents.width  = extents->width;
     target_extents.height = extents->height;
 
-    return surface->target->backend->map_to_image (surface->target,
-						   &target_extents);
+    return _cairo_surface_map_to_image (surface->target, &target_extents);
 }
 
 static cairo_int_status_t
@@ -108,11 +104,7 @@ _cairo_surface_subsurface_unmap_image (void *abstract_surface,
 				       cairo_image_surface_t *image)
 {
     cairo_surface_subsurface_t *surface = abstract_surface;
-
-    if (surface->target->backend->unmap_image == NULL)
-	return CAIRO_INT_STATUS_UNSUPPORTED;
-
-    return surface->target->backend->unmap_image (surface->target, image);
+    return _cairo_surface_unmap_image (surface->target, image);
 }
 
 static cairo_int_status_t
@@ -230,12 +222,10 @@ _cairo_surface_subsurface_glyphs (void			*abstract_surface,
 }
 
 static cairo_status_t
-_cairo_surface_subsurface_flush (void *abstract_surface)
+_cairo_surface_subsurface_flush (void *abstract_surface, unsigned flags)
 {
     cairo_surface_subsurface_t *surface = abstract_surface;
-
-    cairo_surface_flush (surface->target);
-    return surface->target->status;
+    return _cairo_surface_flush (surface->target, flags);
 }
 
 static cairo_status_t
@@ -321,8 +311,11 @@ _cairo_surface_subsurface_acquire_source_image (void                    *abstrac
     image = _cairo_image_surface_create_with_content (surface->base.content,
 						      surface->extents.width,
 						      surface->extents.height);
-    if (unlikely (image->status))
-	return image->status;
+    if (unlikely (image->status)) {
+	status = image->status;
+	cairo_surface_destroy (image);
+	return status;
+    }
 
     _cairo_pattern_init_for_surface (&pattern, surface->target);
     cairo_matrix_init_translate (&pattern.base.matrix,

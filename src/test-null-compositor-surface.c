@@ -419,6 +419,8 @@ no_traps_compositor_get (void)
 	compositor.check_composite = check_composite;
 	compositor.composite = composite;
 	compositor.lerp = lerp;
+	//FIXME:
+	compositor.lerp_color_glyph = lerp;
 	//compositor.check_composite_boxes = check_composite_boxes;
 	compositor.composite_boxes = composite_boxes;
 	//compositor.check_composite_traps = check_composite_traps;

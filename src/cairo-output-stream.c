@@ -696,6 +696,7 @@ _cairo_memory_stream_destroy (cairo_output_stream_t *abstract_stream,
 {
     memory_stream_t *stream;
     cairo_status_t status;
+    void *data;
 
     status = abstract_stream->status;
     if (unlikely (status))
@@ -710,7 +711,14 @@ _cairo_memory_stream_destroy (cairo_output_stream_t *abstract_stream,
 	assert (status == CAIRO_STATUS_SUCCESS);
 	return _cairo_error (CAIRO_STATUS_NO_MEMORY);
     }
-    memcpy (*data_out, _cairo_array_index (&stream->array, 0), *length_out);
+
+    data = _cairo_array_index (&stream->array, 0);
+    if (data == NULL) {
+	free (*data_out);
+	return _cairo_error (CAIRO_STATUS_NULL_POINTER);
+    }
+
+    memcpy (*data_out, data, *length_out);
 
     return _cairo_output_stream_destroy (abstract_stream);
 }

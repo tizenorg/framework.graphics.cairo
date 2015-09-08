@@ -71,6 +71,8 @@ struct _cairo_gstate {
 
     cairo_pattern_t *source;
 
+    cairo_shadow_t shadow;
+
     struct _cairo_gstate *next;
 };
 
@@ -209,6 +211,16 @@ _cairo_gstate_user_to_backend (cairo_gstate_t *gstate, double *x, double *y)
 }
 
 cairo_private void
+_do_cairo_gstate_user_to_backend_distance (cairo_gstate_t *gstate, double *x, double *y);
+
+static inline void
+_cairo_gstate_user_to_backend_distance (cairo_gstate_t *gstate, double *x, double *y)
+{
+    if (! gstate->is_identity)
+	_do_cairo_gstate_user_to_backend_distance (gstate, x, y);
+}
+
+cairo_private void
 _do_cairo_gstate_backend_to_user (cairo_gstate_t *gstate, double *x, double *y);
 
 static inline void
@@ -216,6 +228,16 @@ _cairo_gstate_backend_to_user (cairo_gstate_t *gstate, double *x, double *y)
 {
     if (! gstate->is_identity)
 	_do_cairo_gstate_backend_to_user (gstate, x, y);
+}
+
+cairo_private void
+_do_cairo_gstate_backend_to_user_distance (cairo_gstate_t *gstate, double *x, double *y);
+
+static inline void
+_cairo_gstate_backend_to_user_distance (cairo_gstate_t *gstate, double *x, double *y)
+{
+    if (! gstate->is_identity)
+	_do_cairo_gstate_backend_to_user_distance (gstate, x, y);
 }
 
 cairo_private void
@@ -363,5 +385,31 @@ _cairo_gstate_set_antialias (cairo_gstate_t *gstate,
 
 cairo_private cairo_antialias_t
 _cairo_gstate_get_antialias (cairo_gstate_t *gstate);
+
+cairo_private cairo_status_t
+_cairo_gstate_set_shadow (cairo_gstate_t *gstate, cairo_shadow_type_t shadow);
+
+cairo_private cairo_status_t
+_cairo_gstate_set_shadow_offset (cairo_gstate_t *gstate, double x_offset,
+				 double y_offset);
+
+cairo_private cairo_status_t
+_cairo_gstate_set_shadow_rgba (cairo_gstate_t *gstate, double r, double g,
+			       double b, double a);
+
+cairo_private cairo_status_t
+_cairo_gstate_set_shadow_blur (cairo_gstate_t *gstate, double x_blur,
+			       double y_blur);
+
+cairo_private void
+_cairo_gstate_set_draw_shadow_only (cairo_gstate_t *gstate,
+				    cairo_bool_t draw_shadow_only);
+
+cairo_private void
+_cairo_gstate_shadow_enable_cache (cairo_gstate_t *gstate, cairo_bool_t enable);
+
+cairo_private void
+_cairo_gstate_set_path_is_inset_shadow_with_spread (cairo_gstate_t *gstate,
+						    cairo_bool_t   is_spread_path);
 
 #endif /* CAIRO_GSTATE_PRIVATE_H */

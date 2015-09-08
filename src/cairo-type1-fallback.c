@@ -327,6 +327,9 @@ charstring_encrypt (cairo_array_t *data)
 
     r = CAIRO_TYPE1_CHARSTRING_KEY;
     d = (unsigned char *) _cairo_array_index (data, 0);
+    if (d == NULL)
+	return;
+
     end = d + _cairo_array_num_elements (data);
     while (d < end) {
 	p = *d;
@@ -893,7 +896,8 @@ _cairo_type2_charstrings_fini (cairo_type2_charstrings_t *type2_subset)
     num_charstrings = _cairo_array_num_elements (&type2_subset->charstrings);
     for (i = 0; i < num_charstrings; i++) {
         charstring = _cairo_array_index (&type2_subset->charstrings, i);
-        _cairo_array_fini (charstring);
+	if (charstring)
+	    _cairo_array_fini (charstring);
     }
     _cairo_array_fini (&type2_subset->charstrings);
 

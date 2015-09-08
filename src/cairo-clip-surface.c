@@ -60,6 +60,8 @@ _cairo_clip_combine_with_surface (const cairo_clip_t *clip,
     cairo_status_t status = CAIRO_STATUS_SUCCESS;
 
     copy = _cairo_clip_copy_with_translation (clip, -dst_x, -dst_y);
+    if (copy == NULL)
+	return CAIRO_STATUS_NULL_POINTER;
     copy_path = copy->path;
     copy->path = NULL;
 
@@ -174,6 +176,11 @@ _cairo_clip_get_surface (const cairo_clip_t *clip,
     copy = _cairo_clip_copy_with_translation (clip,
 					      -clip->extents.x,
 					      -clip->extents.y);
+    if (copy == NULL) {
+	cairo_surface_destroy (surface);
+	status = CAIRO_STATUS_NULL_POINTER;
+	return _cairo_surface_create_in_error (status);
+    }
     copy_path = copy->path;
     copy->path = NULL;
 

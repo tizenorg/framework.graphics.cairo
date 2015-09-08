@@ -124,8 +124,10 @@ _cairo_type3_glyph_surface_emit_image (cairo_type3_glyph_surface_t *surface,
     /* The only image type supported by Type 3 fonts are 1-bit masks */
     image = _cairo_image_surface_coerce_to_format (image, CAIRO_FORMAT_A1);
     status = image->base.status;
-    if (unlikely (status))
+    if (unlikely (status)) {
+	cairo_surface_destroy (&image->base);
 	return status;
+    }
 
     _cairo_output_stream_printf (surface->stream,
 				 "q %f %f %f %f %f %f cm\n",
@@ -425,8 +427,11 @@ _cairo_type3_glyph_surface_analyze_glyph (void		     *abstract_surface,
 	return surface->base.status;
 
     null_stream = _cairo_null_stream_create ();
-    if (unlikely (null_stream->status))
-	return null_stream->status;
+    if (unlikely (null_stream->status)) {
+	status = null_stream->status;
+	_cairo_output_stream_destroy (null_stream);
+	return status;
+    }
 
     _cairo_type3_glyph_surface_set_stream (surface, null_stream);
 
@@ -530,8 +535,10 @@ _cairo_type3_glyph_surface_emit_glyph (void		     *abstract_surface,
 
 	mem_stream = _cairo_memory_stream_create ();
 	status = mem_stream->status;
-	if (unlikely (status))
+	if (unlikely (status)) {
+	     _cairo_output_stream_destroy (mem_stream);
 	    goto FAIL;
+	}
 
 	_cairo_type3_glyph_surface_set_stream (surface, mem_stream);
 

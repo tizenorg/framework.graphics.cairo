@@ -160,8 +160,12 @@ _analyze_recording_surface_pattern (cairo_analysis_surface_t *surface,
 
     tmp = (cairo_analysis_surface_t *)
 	_cairo_analysis_surface_create (surface->target);
-    if (unlikely (tmp->base.status))
-	return tmp->base.status;
+    if (unlikely (tmp->base.status)) {
+	status = tmp->base.status;
+	cairo_surface_destroy (&tmp->base);
+	return status;
+    }
+
     proxy = attach_proxy (source, &tmp->base);
 
     p2d = pattern->matrix;

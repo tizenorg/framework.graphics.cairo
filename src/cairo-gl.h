@@ -62,7 +62,7 @@
 
 #include "cairo.h"
 
-#if CAIRO_HAS_GL_SURFACE || CAIRO_HAS_GLESV2_SURFACE
+#if CAIRO_HAS_GL_SURFACE || CAIRO_HAS_GLESV2_SURFACE || CAIRO_HAS_GLESV3_SURFACE || CAIRO_HAS_EVASGL_SURFACE
 
 CAIRO_BEGIN_DECLS
 
@@ -142,10 +142,15 @@ cairo_gl_surface_create_for_egl (cairo_device_t	*device,
 				 int		 width,
 				 int		 height);
 
+cairo_public EGLDisplay
+cairo_egl_device_get_display (cairo_device_t *device);
+
+cairo_public EGLSurface
+cairo_egl_device_get_context (cairo_device_t *device);
+
 #endif
 
 CAIRO_END_DECLS
-
 #else  /* CAIRO_HAS_GL_SURFACE */
 # error Cairo was not compiled with support for the GL backend
 #endif /* CAIRO_HAS_GL_SURFACE */

@@ -419,6 +419,10 @@ twin_scaled_font_compute_properties (cairo_scaled_font_t *scaled_font,
 
     props->face_props = cairo_font_face_get_user_data (cairo_scaled_font_get_font_face (scaled_font),
 						       &twin_properties_key);
+    if (props->face_props == NULL) {
+	status = CAIRO_STATUS_NULL_POINTER;
+	goto FREE_PROPS;
+    }
 
     props->snap = scaled_font->options.hint_style > CAIRO_HINT_STYLE_NONE;
 
@@ -572,6 +576,8 @@ twin_scaled_font_render_glyph (cairo_scaled_font_t  *scaled_font,
     double gw;
 
     props = cairo_scaled_font_get_user_data (scaled_font, &twin_properties_key);
+    if (props == NULL)
+	return _cairo_error (CAIRO_STATUS_NULL_POINTER);
 
     /* Save glyph space, we need it when stroking */
     cairo_save (cr);

@@ -1,18 +1,19 @@
 #sbs-git:slp/unmodified/cairo cairo 1.11.3 076a40b95caaadbc4a05b92a1a1d7840427e05b7
 Name:       cairo
 Summary:    A vector graphics library
-Version:    1.12.2
-Release:    8
+Version:    1.12.14
+Release:    10
 Group:      System/Libraries
-License:    LGPLv2 or MPLv1.1
+License:    LGPL-2.1+ or MPL-1.1
 URL:        http://www.cairographics.org
 Source0:    http://cairographics.org/releases/%{name}-%{version}.tar.gz
-Source1001: packaging/cairo.manifest 
+Source1001: packaging/cairo.manifest
 
 Requires(post): /sbin/ldconfig
 Requires(postun): /sbin/ldconfig
 BuildRequires:  pkgconfig(xrender)
 BuildRequires:  pkgconfig(x11)
+BuildRequires:  pkgconfig(xext)
 BuildRequires:  pkgconfig(libpng)
 BuildRequires:  pkgconfig(libxml-2.0)
 BuildRequires:  pkgconfig(pixman-1)
@@ -23,9 +24,12 @@ BuildRequires:  pkgconfig(sm)
 BuildRequires:  pkgconfig(xt)
 BuildRequires:  pkgconfig(xcb)
 BuildRequires:  pkgconfig(xcb-render)
-BuildRequires:  pkgconfig(xcb-renderutil)
+#BuildRequires:  pkgconfig(xcb-renderutil)
 BuildRequires:  pkgconfig(xcb-shm)
 BuildRequires:  pkgconfig(opengl-es-20)
+BuildRequires:  pkgconfig(ecore)
+BuildRequires:  pkgconfig(evas)
+BuildRequires:  pkgconfig(elementary)
 #BuildRequires:  pkgconfig(librsvg-2.0)
 BuildRequires:  binutils-devel
 BuildRequires:  which
@@ -58,11 +62,15 @@ NOCONFIGURE=1 ./autogen.sh
     --x-libraries=%{_libdir} \
     --disable-gtk-doc \
 %ifarch %ix86
-    --enable-xcb
+    --enable-xcb \
+    --enable-egl=no \
+    --enable-glesv2=no \
+    --enable-evasgl=yes \
 %else
     --enable-xcb \
     --enable-egl=yes \
-    --enable-glesv2=yes
+    --enable-glesv2=yes \
+    --enable-evasgl=yes
 %endif
 
 make %{?jobs:-j%jobs}
@@ -71,6 +79,8 @@ make %{?jobs:-j%jobs}
 rm -rf %{buildroot}
 %make_install
 rm -rf $RPM_BUILD_ROOT/usr/share/gtk-doc
+mkdir -p %{buildroot}/usr/share/license
+cat COPYING COPYING-LGPL-2.1 COPYING-MPL-1.1 > %{buildroot}/usr/share/license/%{name}
 
 %post -p /sbin/ldconfig
 
@@ -78,14 +88,14 @@ rm -rf $RPM_BUILD_ROOT/usr/share/gtk-doc
 
 %files
 %manifest cairo.manifest
-%{_libdir}/libcairo*.so.*
+%{_libdir}/libcairo.so.*
+/usr/share/license/%{name}
+%exclude %{_libdir}/libcairo-*.so.*
 
 %files devel
 %manifest cairo.manifest
 %{_includedir}/*
 %{_libdir}/libcairo*.so
+%{_libdir}/libcairo-*.so.*
 %{_libdir}/pkgconfig/*
-%exclude %{_bindir}/cairo-trace
-%exclude %{_libdir}/cairo/libcairo-trace.so
-%exclude %{_libdir}/cairo/libcairo-trace.so.*
 

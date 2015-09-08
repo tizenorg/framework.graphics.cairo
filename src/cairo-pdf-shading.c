@@ -160,6 +160,8 @@ _cairo_pdf_shading_generate_data (cairo_pdf_shading_t        *shading,
 
     num_patches = _cairo_array_num_elements (&mesh->patches);
     patch = _cairo_array_index_const (&mesh->patches, 0);
+    if (patch == NULL)
+	return _cairo_error (CAIRO_STATUS_NULL_POINTER);
 
     /* Each patch requires:
      *
@@ -252,7 +254,10 @@ _cairo_pdf_shading_init (cairo_pdf_shading_t        *shading,
     if (unlikely (status))
 	return status;
 
-    return _cairo_pdf_shading_generate_data (shading, mesh, is_alpha);
+    status = _cairo_pdf_shading_generate_data (shading, mesh, is_alpha);
+    if (unlikely (status))
+	free (shading->decode_array);
+    return status;
 }
 
 cairo_status_t

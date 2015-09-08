@@ -47,29 +47,18 @@ _add_cap (cairo_gl_hairline_closure_t *hairline,
           cairo_point_t	    *outp)
 {
     double dx, dy;
-    if (lead_cap) {
-        if (hairline->cap_style == CAIRO_LINE_CAP_BUTT)
-            return FALSE;
 
-        dx = slope_dx * POINT_ADJUST;
-        dy = slope_dy * POINT_ADJUST;
+    if (hairline->cap_style == CAIRO_LINE_CAP_BUTT)
+	return FALSE;
 
-        cairo_matrix_transform_distance (hairline->ctm, &dx, &dy);
-        outp->x -= _cairo_fixed_from_double (dx);
-        outp->y -= _cairo_fixed_from_double (dy);
-        return TRUE;
-    } else {
-        if (hairline->cap_style == CAIRO_LINE_CAP_BUTT)
-            return FALSE;
+    dx = slope_dx * POINT_ADJUST;
+    dy = slope_dy * POINT_ADJUST;
+    hairline->line_last_capped = lead_cap;
+    cairo_matrix_transform_distance (hairline->ctm, &dx, &dy);
+    outp->x += _cairo_fixed_from_double (dx);
+    outp->y += _cairo_fixed_from_double (dy);
 
-        dx = slope_dx * POINT_ADJUST;
-        dy = slope_dy * POINT_ADJUST;
-        hairline->line_last_capped = TRUE;
-        cairo_matrix_transform_distance (hairline->ctm, &dx, &dy);
-        outp->x += _cairo_fixed_from_double (dx);
-        outp->y += _cairo_fixed_from_double (dy);
-        return TRUE;
-    }
+    return TRUE;
 }
 
 static inline cairo_bool_t
@@ -124,7 +113,6 @@ _cairo_gl_hairline_style_is_hairline (const cairo_stroke_style_t *style,
                                       const cairo_matrix_t       *ctm)
 {
     double x, y;
-
     cairo_status_t status = _cairo_matrix_compute_basis_scale_factors (ctm, &x, &y, TRUE);
 
     if (unlikely (status))
@@ -138,7 +126,6 @@ _cairo_gl_hairline_style_is_hairline (const cairo_stroke_style_t *style,
          style->miter_limit <= 10.0) &&
         (x <= SCALE_TOLERANCE && y <= SCALE_TOLERANCE);
 }
-
 
 static cairo_status_t
 _path_add_first_and_last_cap (cairo_gl_hairline_closure_t *hairline)
@@ -195,7 +182,6 @@ _cairo_gl_hairline_move_to (void *closure,
     hairline->moved_to_stroke_first_point = FALSE;
 
     /* check last point */
-
     if (hairline->initialized) {
         status = _path_add_first_and_last_cap (hairline);
         if (unlikely(status))
@@ -279,13 +265,11 @@ _cairo_gl_hairline_line_to_dashed (void *closure,
     while (remain) {
         step_length = MIN (hairline->dash.dash_remain, remain);
         remain -= step_length;
-
         dx = slope_dx * (mag - remain);
         dy = slope_dy * (mag - remain);
         cairo_matrix_transform_distance (hairline->ctm, &dx, &dy);
         segment.p2.x = _cairo_fixed_from_double (dx) + p1->x;
         segment.p2.y = _cairo_fixed_from_double (dy) + p1->y;
-
 
         if (hairline->dash.dash_on) {
             p[0] = segment.p1;
@@ -380,7 +364,6 @@ _cairo_gl_hairline_curve_to (void *closure,
         return _cairo_gl_hairline_line_to (closure, p2);
 
     return _cairo_spline_decompose (&spline, hairline->tolerance);
-
 }
 
 cairo_status_t

@@ -675,6 +675,14 @@ _cairo_xcb_connection_get (xcb_connection_t *xcb_connection)
     xcb_prefetch_maximum_request_length (xcb_connection);
 
     connection->root = xcb_get_setup (xcb_connection);
+    if (connection->root == NULL) {
+	_cairo_hash_table_destroy (connection->xrender_formats);
+	CAIRO_MUTEX_FINI (connection->device.mutex);
+	_cairo_xcb_connection_destroy (connection);
+	connection = NULL;
+	goto unlock;
+    }
+
     connection->render = NULL;
     ext = xcb_get_extension_data (xcb_connection, &xcb_render_id);
     if (ext != NULL && ext->present) {

@@ -130,6 +130,7 @@ _cairo_paginated_surface_create (cairo_surface_t				*target,
 
   FAIL_CLEANUP_SURFACE:
     cairo_surface_destroy (target);
+    cairo_surface_destroy (surface->recording_surface);
     free (surface);
   FAIL:
     return _cairo_surface_create_in_error (status);
@@ -348,8 +349,10 @@ _paint_page (cairo_paginated_surface_t *surface)
 	return surface->target->status;
 
     analysis = _cairo_analysis_surface_create (surface->target);
-    if (unlikely (analysis->status))
-	return _cairo_surface_set_error (surface->target, analysis->status);
+    if (unlikely (analysis->status)) {
+	status = analysis->status;
+	goto FAIL;
+    }
 
     surface->backend->set_paginated_mode (surface->target,
 	                                  CAIRO_PAGINATED_MODE_ANALYZE);

@@ -43,6 +43,12 @@
 
 #include <stdio.h> /* FILE* */
 
+#define CAIRO_MAX_SIGMA 4  /* 4 defined in skia */
+#define CAIRO_DEFAULT_SIGMA 0
+#define CAIRO_MAX_BLUR 64
+#define CAIRO_MIN_SHRINK_SIZE 32
+#define CAIRO_MIN_LINE_WIDTH 1.0
+
 CAIRO_BEGIN_DECLS
 
 typedef struct _cairo_pattern_observer cairo_pattern_observer_t;
@@ -75,6 +81,22 @@ struct _cairo_pattern {
 
     cairo_matrix_t		matrix;
     double			opacity;
+
+    /* we use this to shrink image before we apply blur */
+    unsigned int                shrink_factor_x;
+    unsigned int                shrink_factor_y;
+    unsigned int                x_radius;
+    unsigned int                y_radius;
+    double                      x_sigma;
+    double                      y_sigma;
+
+    double                      *convolution_matrix;
+    cairo_bool_t                convolution_changed;
+
+    /* FIXME:  I don't like to attach shadow to pattern.  However,
+     * cairo does not have a way to pass shadow info to backend.
+     * so we attach shadow info in pattern */
+    cairo_shadow_t		shadow;
 };
 
 struct _cairo_solid_pattern {
@@ -230,9 +252,6 @@ _cairo_pattern_init_for_surface (cairo_surface_pattern_t *pattern,
 cairo_private void
 _cairo_pattern_fini (cairo_pattern_t *pattern);
 
-cairo_private void
-_cairo_pattern_fini_snapshot (cairo_pattern_t *pattern);
-
 cairo_private cairo_pattern_t *
 _cairo_pattern_create_solid (const cairo_color_t	*color);
 
@@ -297,6 +316,10 @@ cairo_private void
 _cairo_pattern_get_extents (const cairo_pattern_t	    *pattern,
 			    cairo_rectangle_int_t           *extents);
 
+cairo_private void
+_cairo_pattern_get_exact_extents (const cairo_pattern_t	    *pattern,
+				  cairo_rectangle_t         *extents);
+
 cairo_private cairo_int_status_t
 _cairo_pattern_get_ink_extents (const cairo_pattern_t	    *pattern,
 				cairo_rectangle_int_t       *extents);
@@ -356,6 +379,15 @@ _cairo_raster_source_pattern_init_copy (cairo_pattern_t *pattern,
 
 cairo_private void
 _cairo_raster_source_pattern_finish (cairo_pattern_t *abstract_pattern);
+
+cairo_private cairo_status_t
+_cairo_pattern_create_gaussian_matrix (cairo_pattern_t *pattern,
+				       double		line_width);
+
+unsigned long
+_cairo_pattern_hash_with_hash (unsigned long hash,
+			       const cairo_pattern_t *pattern,
+			       const cairo_bool_t use_color);
 
 cairo_private void
 _cairo_debug_print_pattern (FILE *file, const cairo_pattern_t *pattern);

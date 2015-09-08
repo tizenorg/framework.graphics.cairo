@@ -52,9 +52,8 @@ typedef struct _cairo_glx_context {
     Display *display;
     Window dummy_window;
     GLXContext context;
+    GLXDrawable current_drawable;
 
-    Display *previous_display;
-    GLXDrawable previous_drawable;
     GLXContext previous_context;
 
     cairo_bool_t has_multithread_makecurrent;
@@ -67,12 +66,9 @@ typedef struct _cairo_glx_surface {
 } cairo_glx_surface_t;
 
 static cairo_bool_t
-_context_acquisition_changed_glx_state (cairo_glx_context_t *ctx,
-					GLXDrawable current_drawable)
+_context_acquisition_changed_glx_state (cairo_glx_context_t *ctx)
 {
-    return !(ctx->previous_display == ctx->display &&
-	     ctx->previous_drawable == current_drawable &&
-	     ctx->previous_context == ctx->context);
+    return ctx->previous_context != ctx->context;
 }
 
 static GLXDrawable
@@ -86,11 +82,9 @@ _glx_get_current_drawable (cairo_glx_context_t *ctx)
     return ((cairo_glx_surface_t *) ctx->base.current_target)->win;
 }
 
-static void
+static void *
 _glx_query_current_state (cairo_glx_context_t * ctx)
 {
-    ctx->previous_drawable = glXGetCurrentDrawable ();
-    ctx->previous_display = glXGetCurrentDisplay ();
     ctx->previous_context = glXGetCurrentContext ();
 }
 
@@ -101,10 +95,12 @@ _glx_acquire (void *abstract_ctx)
     GLXDrawable current_drawable = _glx_get_current_drawable (ctx);
 
     _glx_query_current_state (ctx);
-    if (!_context_acquisition_changed_glx_state (ctx, current_drawable))
+    if (!_context_acquisition_changed_glx_state (ctx))
 	return;
 
+    _cairo_gl_context_reset (&ctx->base);
     glXMakeCurrent (ctx->display, current_drawable, ctx->context);
+    ctx->current_drawable = current_drawable;
 }
 
 static void
@@ -114,7 +110,10 @@ _glx_make_current (void *abstract_ctx, cairo_gl_surface_t *abstract_surface)
     cairo_glx_surface_t *surface = (cairo_glx_surface_t *) abstract_surface;
 
     /* Set the window as the target of our context. */
-    glXMakeCurrent (ctx->display, surface->win, ctx->context);
+    if (ctx->current_drawable != surface->win) {
+	glXMakeCurrent (ctx->display, surface->win, ctx->context);
+	ctx->current_drawable = surface->win;
+    }
 }
 
 static void
@@ -122,10 +121,13 @@ _glx_release (void *abstract_ctx)
 {
     cairo_glx_context_t *ctx = abstract_ctx;
 
-    if (ctx->has_multithread_makecurrent || !ctx->base.thread_aware)
+    if (ctx->has_multithread_makecurrent || !ctx->base.thread_aware ||
+	!_context_acquisition_changed_glx_state (ctx)) {
 	return;
+    }
 
     glXMakeCurrent (ctx->display, None, None);
+    ctx->current_drawable = None;
 }
 
 static void
@@ -150,7 +152,7 @@ _glx_destroy (void *abstract_ctx)
 }
 
 static cairo_status_t
-_glx_dummy_ctx (Display *dpy, GLXContext gl_ctx, Window *dummy)
+_glx_dummy_window (Display *dpy, GLXContext gl_ctx, Window *dummy)
 {
     int attr[3] = { GLX_FBCONFIG_ID, 0, None };
     GLXFBConfig *config;
@@ -201,6 +203,58 @@ _glx_dummy_ctx (Display *dpy, GLXContext gl_ctx, Window *dummy)
     return CAIRO_STATUS_SUCCESS;
 }
 
+static cairo_gl_generic_func_t
+_cairo_glx_get_proc_address (void *data, const char *name)
+{
+    int i;
+    struct {
+	cairo_gl_generic_func_t func;
+	const char *name;
+    } func_map[] = {
+    { (cairo_gl_generic_func_t)glActiveTexture,	"glActiveTexture"	},
+    { (cairo_gl_generic_func_t)glBindTexture,	"glBindTexture"		},
+    { (cairo_gl_generic_func_t)glBlendFunc,	"glBlendFunc"		},
+    { (cairo_gl_generic_func_t)glBlendFuncSeparate,"glBlendFuncSeparate"},
+    { (cairo_gl_generic_func_t)glClear,		"glClear"		},
+    { (cairo_gl_generic_func_t)glClearColor,	"glClearColor"		},
+    { (cairo_gl_generic_func_t)glClearStencil,	"glClearStencil"	},
+    { (cairo_gl_generic_func_t)glColorMask,	"glColorMask"		},
+    { (cairo_gl_generic_func_t)glDeleteTextures,"glDeleteTextures"	},
+    { (cairo_gl_generic_func_t)glDepthMask,	"glDepthMask"		},
+    { (cairo_gl_generic_func_t)glDisable,	"glDisable"		},
+    { (cairo_gl_generic_func_t)glDrawArrays,	"glDrawArrays"		},
+    { (cairo_gl_generic_func_t)glDrawBuffer,	"glDrawBuffer"		},
+    { (cairo_gl_generic_func_t)glDrawElements,	"glDrawElements"	},
+    { (cairo_gl_generic_func_t)glEnable,	"glEnable"		},
+    { (cairo_gl_generic_func_t)glGenTextures,	"glGenTextures"		},
+    { (cairo_gl_generic_func_t)glGetBooleanv,	"glGetBooleanv"		},
+    { (cairo_gl_generic_func_t)glGetError,	"glGetError"		},
+    { (cairo_gl_generic_func_t)glGetFloatv,	"glGetFloatv"		},
+    { (cairo_gl_generic_func_t)glGetIntegerv,	"glGetIntegerv"		},
+    { (cairo_gl_generic_func_t)glGetString,	"glGetString"		},
+    { (cairo_gl_generic_func_t)glFlush,		"glFlush"		},
+    { (cairo_gl_generic_func_t)glPixelStorei,	"glPixelStorei"		},
+    { (cairo_gl_generic_func_t)glReadBuffer,	"glReadBuffer"		},
+    { (cairo_gl_generic_func_t)glReadPixels,	"glReadPixels"		},
+    { (cairo_gl_generic_func_t)glScissor,	"glScissor"		},
+    { (cairo_gl_generic_func_t)glStencilFunc,	"glStencilFunc"		},
+    { (cairo_gl_generic_func_t)glStencilMask,	"glStencilMask"		},
+    { (cairo_gl_generic_func_t)glStencilOp,	"glStencilOp"		},
+    { (cairo_gl_generic_func_t)glTexImage2D,	"glTexImage2D"		},
+    { (cairo_gl_generic_func_t)glTexSubImage2D,	"glTexSubImage2D"	},
+    { (cairo_gl_generic_func_t)glTexParameteri,	"glTexParameteri"	},
+    { (cairo_gl_generic_func_t)glViewport,	"glViewport"		},
+    { NULL,					 NULL			}
+    };
+
+    for (i = 0; func_map[i].name; i++) {
+	if (! strcmp (func_map[i].name, name))
+	    return func_map[i].func;
+    }
+
+  return glXGetProcAddress (name);
+}
+
 cairo_device_t *
 cairo_glx_device_create (Display *dpy, GLXContext gl_ctx)
 {
@@ -213,11 +267,17 @@ cairo_glx_device_create (Display *dpy, GLXContext gl_ctx)
     if (unlikely (ctx == NULL))
 	return _cairo_gl_context_create_in_error (CAIRO_STATUS_NO_MEMORY);
 
-    status = _glx_dummy_ctx (dpy, gl_ctx, &dummy);
+    /* glx_dummy_window will call glXMakeCurrent, so we need to
+     *  query the current state of the context now. */
+    _glx_query_current_state (ctx);
+
+    status = _glx_dummy_window (dpy, gl_ctx, &dummy);
     if (unlikely (status)) {
 	free (ctx);
 	return _cairo_gl_context_create_in_error (status);
     }
+
+    ctx->current_drawable = dummy;
 
     ctx->display = dpy;
     ctx->dummy_window = dummy;
@@ -230,7 +290,8 @@ cairo_glx_device_create (Display *dpy, GLXContext gl_ctx)
     ctx->base.destroy = _glx_destroy;
 
     status = _cairo_gl_dispatch_init (&ctx->base.dispatch,
-				      (cairo_gl_get_proc_addr_func_t) glXGetProcAddress);
+				      (cairo_gl_get_proc_addr_func_t) _cairo_glx_get_proc_address,
+				      NULL);
     if (unlikely (status)) {
 	free (ctx);
 	return _cairo_gl_context_create_in_error (status);

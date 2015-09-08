@@ -417,6 +417,7 @@ _cairo_xlib_screen_get_visual_info (cairo_xlib_display_t *display,
 {
     cairo_xlib_visual_info_t *visual;
     cairo_status_t status;
+    int screen_number;
 
     cairo_list_foreach_entry (visual,
                               cairo_xlib_visual_info_t,
@@ -429,8 +430,12 @@ _cairo_xlib_screen_get_visual_info (cairo_xlib_display_t *display,
 	}
     }
 
+    screen_number = XScreenNumberOfScreen (info->screen);
+    if (screen_number < 0)
+	return CAIRO_STATUS_NEGATIVE_COUNT;
+
     status = _cairo_xlib_visual_info_create (display->display,
-					     XScreenNumberOfScreen (info->screen),
+					     screen_number,
 					     v->visualid,
 					     &visual);
     if (unlikely (status))

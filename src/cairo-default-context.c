@@ -149,23 +149,28 @@ _cairo_default_context_push_group (void *abstract_cr, cairo_content_t content)
     } else {
 	cairo_surface_t *parent_surface;
 	cairo_rectangle_int_t extents;
-	cairo_bool_t is_empty;
+	cairo_bool_t bounded, is_empty;
 
 	parent_surface = _cairo_gstate_get_target (cr->gstate);
 
 	/* Get the extents that we'll use in creating our new group surface */
-	is_empty = _cairo_surface_get_extents (parent_surface, &extents);
+	bounded = _cairo_surface_get_extents (parent_surface, &extents);
 	if (clip)
+	    /* XXX: This assignment just fixes a compiler warning? */
 	    is_empty = _cairo_rectangle_intersect (&extents,
 						   _cairo_clip_get_extents (clip));
 
-	/* XXX unbounded surface creation */
-
-	group_surface = _cairo_surface_create_similar_solid (parent_surface,
-							     content,
-							     extents.width,
-							     extents.height,
-							     CAIRO_COLOR_TRANSPARENT);
+	if (!bounded) {
+	    /* XXX: Generic solution? */
+	    group_surface = cairo_recording_surface_create (content, NULL);
+	    extents.x = extents.y = 0;
+	} else {
+	    group_surface = _cairo_surface_create_similar_solid (parent_surface,
+								 content,
+								 extents.width,
+								 extents.height,
+								 CAIRO_COLOR_TRANSPARENT);
+	}
 	status = group_surface->status;
 	if (unlikely (status))
 	    goto bail;
@@ -294,8 +299,11 @@ _cairo_default_context_set_source_rgba (void *abstract_cr, double red, double gr
     _cairo_default_context_set_source (cr, (cairo_pattern_t *) &_cairo_pattern_black);
 
     pattern = cairo_pattern_create_rgba (red, green, blue, alpha);
-    if (unlikely (pattern->status))
-	return pattern->status;
+    if (unlikely (pattern->status)) {
+        status = pattern->status;
+        cairo_pattern_destroy (pattern);
+        return pattern->status;
+    }
 
     status = _cairo_default_context_set_source (cr, pattern);
     cairo_pattern_destroy (pattern);
@@ -318,8 +326,11 @@ _cairo_default_context_set_source_surface (void *abstract_cr,
     _cairo_default_context_set_source (cr, (cairo_pattern_t *) &_cairo_pattern_black);
 
     pattern = cairo_pattern_create_for_surface (surface);
-    if (unlikely (pattern->status))
-	return pattern->status;
+    if (unlikely (pattern->status)) {
+        status = pattern->status;
+        cairo_pattern_destroy (pattern);
+        return status;
+    }
 
     cairo_matrix_init_translate (&matrix, -x, -y);
     cairo_pattern_set_matrix (pattern, &matrix);
@@ -621,6 +632,44 @@ _cairo_default_context_device_to_user_distance (void *abstract_cr,
     _cairo_gstate_device_to_user_distance (cr->gstate, dx, dy);
 }
 
+static void
+_cairo_default_context_backend_to_user (void *abstract_cr,
+					double *x,
+					double *y)
+{
+    cairo_default_context_t *cr = abstract_cr;
+
+    _cairo_gstate_backend_to_user (cr->gstate, x, y);
+}
+
+static void
+_cairo_default_context_backend_to_user_distance (void *abstract_cr, double *dx, double *dy)
+{
+    cairo_default_context_t *cr = abstract_cr;
+
+    _cairo_gstate_backend_to_user_distance (cr->gstate, dx, dy);
+}
+
+static void
+_cairo_default_context_user_to_backend (void *abstract_cr,
+					double *x,
+					double *y)
+{
+    cairo_default_context_t *cr = abstract_cr;
+
+    _cairo_gstate_user_to_backend (cr->gstate, x, y);
+}
+
+static void
+_cairo_default_context_user_to_backend_distance (void *abstract_cr,
+						 double *dx,
+						 double *dy)
+{
+    cairo_default_context_t *cr = abstract_cr;
+
+    _cairo_gstate_user_to_backend_distance (cr->gstate, dx, dy);
+}
+
 /* Path constructor */
 
 static cairo_status_t
@@ -748,7 +797,7 @@ _cairo_default_context_rel_move_to (void *abstract_cr, double dx, double dy)
     cairo_default_context_t *cr = abstract_cr;
     cairo_fixed_t dx_fixed, dy_fixed;
 
-    _cairo_gstate_user_to_device_distance (cr->gstate, &dx, &dy);
+    _cairo_gstate_user_to_backend_distance (cr->gstate, &dx, &dy);
 
     dx_fixed = _cairo_fixed_from_double (dx);
     dy_fixed = _cairo_fixed_from_double (dy);
@@ -762,7 +811,7 @@ _cairo_default_context_rel_line_to (void *abstract_cr, double dx, double dy)
     cairo_default_context_t *cr = abstract_cr;
     cairo_fixed_t dx_fixed, dy_fixed;
 
-    _cairo_gstate_user_to_device_distance (cr->gstate, &dx, &dy);
+    _cairo_gstate_user_to_backend_distance (cr->gstate, &dx, &dy);
 
     dx_fixed = _cairo_fixed_from_double (dx);
     dy_fixed = _cairo_fixed_from_double (dy);
@@ -782,9 +831,9 @@ _cairo_default_context_rel_curve_to (void *abstract_cr,
     cairo_fixed_t dx2_fixed, dy2_fixed;
     cairo_fixed_t dx3_fixed, dy3_fixed;
 
-    _cairo_gstate_user_to_device_distance (cr->gstate, &dx1, &dy1);
-    _cairo_gstate_user_to_device_distance (cr->gstate, &dx2, &dy2);
-    _cairo_gstate_user_to_device_distance (cr->gstate, &dx3, &dy3);
+    _cairo_gstate_user_to_backend_distance (cr->gstate, &dx1, &dy1);
+    _cairo_gstate_user_to_backend_distance (cr->gstate, &dx2, &dy2);
+    _cairo_gstate_user_to_backend_distance (cr->gstate, &dx3, &dy3);
 
     dx1_fixed = _cairo_fixed_from_double (dx1);
     dy1_fixed = _cairo_fixed_from_double (dy1);
@@ -1275,6 +1324,70 @@ _cairo_default_context_glyph_extents (void                *abstract_cr,
     return _cairo_gstate_glyph_extents (cr->gstate, glyphs, num_glyphs, extents);
 }
 
+static cairo_status_t
+_cairo_default_context_set_shadow (void		  *abstract_cr,
+				   cairo_shadow_type_t shadow)
+{
+    cairo_default_context_t *cr = abstract_cr;
+
+    return _cairo_gstate_set_shadow (cr->gstate, shadow);
+}
+
+static cairo_status_t
+_cairo_default_context_set_shadow_offset (void *abstract_cr,
+					  double x_offset,
+					  double y_offset)
+{
+    cairo_default_context_t *cr = abstract_cr;
+
+    return _cairo_gstate_set_shadow_offset (cr->gstate, x_offset, y_offset);
+}
+
+static cairo_status_t
+_cairo_default_context_set_shadow_rgba (void *abstract_cr, double red, double green, double blue, double alpha)
+{
+    cairo_default_context_t *cr = abstract_cr;
+
+    return _cairo_gstate_set_shadow_rgba (cr->gstate, red, green, blue, alpha);
+}
+
+static cairo_status_t
+_cairo_default_context_set_shadow_blur (void *abstract_cr,
+					 double x_blur,
+					 double y_blur)
+{
+    cairo_default_context_t *cr = abstract_cr;
+
+    return _cairo_gstate_set_shadow_blur (cr->gstate, x_blur, y_blur);
+}
+
+static void
+_cairo_default_context_set_draw_shadow_only (void *abstract_cr,
+					     cairo_bool_t draw_shadow_only)
+{
+    cairo_default_context_t *cr = abstract_cr;
+
+    _cairo_gstate_set_draw_shadow_only (cr->gstate, draw_shadow_only);
+}
+
+static void
+_cairo_default_context_shadow_enable_cache (void	*abstract_cr,
+					    cairo_bool_t enable)
+{
+    cairo_default_context_t *cr = abstract_cr;
+
+    return _cairo_gstate_shadow_enable_cache (cr->gstate, enable);
+}
+
+static void
+_cairo_default_context_set_path_is_inset_shadow_with_spread (void *abstract_cr,
+							     cairo_bool_t is_spread_path)
+{
+    cairo_default_context_t *cr = abstract_cr;
+    return _cairo_gstate_set_path_is_inset_shadow_with_spread (cr->gstate,
+								is_spread_path);
+}
+
 static const cairo_backend_t _cairo_default_context_backend = {
     CAIRO_TYPE_DEFAULT,
     _cairo_default_context_destroy,
@@ -1321,10 +1434,16 @@ static const cairo_backend_t _cairo_default_context_backend = {
     _cairo_default_context_set_matrix,
     _cairo_default_context_set_identity_matrix,
     _cairo_default_context_get_matrix,
+
     _cairo_default_context_user_to_device,
     _cairo_default_context_user_to_device_distance,
     _cairo_default_context_device_to_user,
     _cairo_default_context_device_to_user_distance,
+
+    _cairo_default_context_user_to_backend,
+    _cairo_default_context_user_to_backend_distance,
+    _cairo_default_context_backend_to_user,
+    _cairo_default_context_backend_to_user_distance,
 
     _cairo_default_context_new_path,
     _cairo_default_context_new_sub_path,
@@ -1386,6 +1505,15 @@ static const cairo_backend_t _cairo_default_context_backend = {
 
     _cairo_default_context_copy_page,
     _cairo_default_context_show_page,
+
+    /* shadow */
+    _cairo_default_context_set_shadow,
+    _cairo_default_context_set_shadow_offset,
+    _cairo_default_context_set_shadow_rgba,
+    _cairo_default_context_set_shadow_blur,
+    _cairo_default_context_set_draw_shadow_only,
+    _cairo_default_context_shadow_enable_cache,
+    _cairo_default_context_set_path_is_inset_shadow_with_spread,
 };
 
 cairo_status_t

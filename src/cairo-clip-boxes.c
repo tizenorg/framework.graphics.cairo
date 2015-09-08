@@ -285,6 +285,9 @@ _cairo_clip_intersect_boxes (cairo_clip_t *clip,
     if (clip == NULL)
 	clip = _cairo_clip_create ();
 
+    if (clip == NULL)
+	return NULL;
+
     if (clip->num_boxes) {
 	_cairo_boxes_init_for_array (&clip_boxes, clip->boxes, clip->num_boxes);
 	if (unlikely (_cairo_boxes_intersect (&clip_boxes, boxes, &clip_boxes))) {

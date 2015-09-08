@@ -267,6 +267,11 @@ _bitmap_next_id (struct _bitmap *b,
     if (unlikely (bb == NULL))
 	return _cairo_error (CAIRO_STATUS_NO_MEMORY);
 
+    if (prev == NULL) {
+	free (bb);
+	return CAIRO_STATUS_NULL_POINTER;
+    }
+
     *prev = bb;
     bb->next = b;
     bb->min = min;
@@ -1011,8 +1016,11 @@ _emit_mesh_pattern (cairo_script_surface_t *surface,
 	_cairo_output_stream_printf (ctx->stream, "\n  begin-patch");
 
 	path = cairo_mesh_pattern_get_path (mesh, i);
-	if (unlikely (path->status))
-	    return path->status;
+	if (unlikely (path->status)) {
+	    status = path->status;
+	    cairo_path_destroy (path);
+	    return status;
+	}
 
 	for (j = 0; j < path->num_data; j+=data[0].header.length) {
 	    data = &path->data[j];
@@ -1146,8 +1154,11 @@ _emit_recording_surface_pattern (cairo_script_surface_t *surface,
 						     source->base.content,
 						     extents,
 						     NULL);
-    if (unlikely (similar->base.status))
-	return similar->base.status;
+    if (unlikely (similar->base.status)) {
+	status = similar->base.status;
+	cairo_surface_destroy (&similar->base);
+	return status;
+    }
 
     similar->base.is_clear = TRUE;
 
@@ -1443,8 +1454,10 @@ _emit_image_surface (cairo_script_surface_t *surface,
 	    status2 = _cairo_output_stream_destroy (base85_stream);
 	    if (status == CAIRO_INT_STATUS_SUCCESS)
 		status = status2;
-	    if (unlikely (status))
+	    if (unlikely (status)) {
+		cairo_surface_destroy (&clone->base);
 		return status;
+	    }
 	} else {
 	    _cairo_output_stream_puts (ctx->stream, "<~");
 
@@ -1453,8 +1466,10 @@ _emit_image_surface (cairo_script_surface_t *surface,
 	    status2 = _cairo_output_stream_destroy (base85_stream);
 	    if (status == CAIRO_INT_STATUS_SUCCESS)
 		status = status2;
-	    if (unlikely (status))
+	    if (unlikely (status)) {
+		cairo_surface_destroy (&clone->base);
 		return status;
+	    }
 	}
 	_cairo_output_stream_puts (ctx->stream, "~> >> image ");
 
@@ -1816,7 +1831,7 @@ _emit_path_boxes (cairo_script_surface_t *surface,
 {
     cairo_script_context_t *ctx = to_context (surface);
     cairo_path_fixed_iter_t iter;
-    cairo_status_t status;
+    cairo_status_t status = CAIRO_STATUS_SUCCESS;
     struct _cairo_boxes_chunk *chunk;
     cairo_boxes_t boxes;
     cairo_box_t box;
@@ -3139,6 +3154,9 @@ _emit_scaled_glyphs (cairo_script_surface_t *surface,
 	return CAIRO_STATUS_SUCCESS;
 
     font_private = _cairo_script_font_get (ctx, scaled_font);
+    if (font_private == NULL)
+	return (_cairo_error (CAIRO_STATUS_NULL_POINTER));
+
     if (font_private->has_sfnt)
 	return CAIRO_STATUS_SUCCESS;
 
@@ -3390,8 +3408,10 @@ _cairo_script_surface_show_text_glyphs (void			    *abstract_surface,
 					     glyphs[n].index,
 					     CAIRO_SCALED_GLYPH_INFO_METRICS,
 					     &scaled_glyph);
-	if (unlikely (status))
+	if (unlikely (status)) {
+	    _cairo_scaled_font_thaw_cache (scaled_font);
 	    goto BAIL;
+	}
 
 	if (fabs (glyphs[n].x - x) > 1e-5 || fabs (glyphs[n].y - y) > 1e-5) {
 	    if (fabs (glyphs[n].y - y) < 1e-5) {
@@ -3757,8 +3777,10 @@ cairo_script_create (const char *filename)
     cairo_status_t status;
 
     stream = _cairo_output_stream_create_for_filename (filename);
-    if ((status = _cairo_output_stream_get_status (stream)))
+    if ((status = _cairo_output_stream_get_status (stream))) {
+	_cairo_output_stream_destroy (stream);
 	return _cairo_device_create_in_error (status);
+    }
 
     return _cairo_script_context_create (stream);
 }
@@ -3789,8 +3811,10 @@ cairo_script_create_for_stream (cairo_write_func_t	 write_func,
     cairo_status_t status;
 
     stream = _cairo_output_stream_create (write_func, NULL, closure);
-    if ((status = _cairo_output_stream_get_status (stream)))
+    if ((status = _cairo_output_stream_get_status (stream))) {
+	_cairo_output_stream_destroy (stream);
 	return _cairo_device_create_in_error (status);
+    }
 
     return _cairo_script_context_create (stream);
 }
@@ -3987,8 +4011,11 @@ cairo_script_from_recording_surface (cairo_device_t *script,
 						      recording_surface->content,
 						      extents,
 						      NULL)->base;
-    if (unlikely (surface->status))
-	return surface->status;
+    if (unlikely (surface->status)) {
+	status = surface->status;
+	cairo_surface_destroy (surface);
+	return status;
+    }
 
     status = _cairo_recording_surface_replay (recording_surface, surface);
     cairo_surface_destroy (surface);

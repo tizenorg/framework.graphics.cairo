@@ -4025,3 +4025,103 @@ cairo_status (cairo_t *cr)
     return cr->status;
 }
 slim_hidden_def (cairo_status);
+
+void
+cairo_set_shadow (cairo_t *cr, cairo_shadow_type_t shadow)
+{
+    cairo_status_t status;
+
+    if (unlikely (cr->status))
+	return;
+
+    status = cr->backend->set_shadow (cr, shadow);
+    if (unlikely (status))
+	_cairo_set_error (cr, status);
+}
+slim_hidden_def (cairo_set_shadow);
+
+void
+cairo_set_shadow_offset (cairo_t *cr, double x_offset, double y_offset)
+{
+    cairo_status_t status;
+
+    if (unlikely (cr->status))
+	return;
+
+    status = cr->backend->set_shadow_offset (cr, x_offset, y_offset);
+    if (unlikely (status))
+	_cairo_set_error (cr, status);
+}
+slim_hidden_def (cairo_set_shadow_offset);
+
+void
+cairo_set_shadow_rgb (cairo_t *cr, double red, double green, double blue)
+{
+    cairo_status_t status;
+
+    if (unlikely (cr->status))
+	return;
+
+    status = cr->backend->set_shadow_rgba (cr, red, green, blue, 1.0);
+    if (unlikely (status))
+	_cairo_set_error (cr, status);
+}
+slim_hidden_def (cairo_set_shadow_rgb);
+
+void
+cairo_set_shadow_rgba (cairo_t *cr, double red, double green,
+		       double blue, double alpha)
+{
+    cairo_status_t status;
+
+    if (unlikely (cr->status))
+	return;
+
+    status = cr->backend->set_shadow_rgba (cr, red, green, blue, alpha);
+    if (unlikely (status))
+	_cairo_set_error (cr, status);
+}
+slim_hidden_def (cairo_set_shadow_rgba);
+
+void
+cairo_set_shadow_blur (cairo_t *cr, double x_blur, double y_blur)
+{
+    cairo_status_t status;
+
+    if (unlikely (cr->status))
+	return;
+
+    status = cr->backend->set_shadow_blur (cr, x_blur, y_blur);
+    if (unlikely (status))
+	_cairo_set_error (cr, status);
+}
+slim_hidden_def (cairo_set_shadow_blur);
+
+void
+cairo_set_draw_shadow_only (cairo_t *cr, cairo_bool_t draw_shadow_only)
+{
+    if (unlikely (cr->status))
+	return;
+
+    cr->backend->set_draw_shadow_only (cr, draw_shadow_only);
+}
+slim_hidden_def (cairo_set_draw_shadow_only);
+
+void
+cairo_shadow_enable_cache (cairo_t *cr, cairo_bool_t enable)
+{
+    if (unlikely (cr->status))
+	return;
+
+    cr->backend->shadow_enable_cache (cr, enable);
+}
+slim_hidden_def (cairo_shadow_enable_cache);
+
+void
+cairo_set_path_is_inset_shadow_with_spread (cairo_t *cr,
+					    cairo_bool_t is_spread_path)
+{
+    if (unlikely (cr->status))
+	return;
+    cr->backend->set_path_is_inset_shadow_with_spread (cr, is_spread_path);}
+slim_hidden_def (cairo_set_path_is_inset_shadow_with_spread);

@@ -188,6 +188,9 @@ _cairo_compositor_stroke (const cairo_compositor_t	*compositor,
 
     TRACE ((stderr, "%s\n", __FUNCTION__));
 
+    if (_cairo_pen_vertices_needed (tolerance, style->line_width/2, ctm) <= 1)
+	return CAIRO_INT_STATUS_NOTHING_TO_DO;
+
     if (compositor->lazy_init) {
 	status = _cairo_composite_rectangles_lazy_init_for_stroke (&extents,
 								   surface,

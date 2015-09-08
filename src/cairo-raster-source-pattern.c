@@ -101,7 +101,7 @@ _cairo_raster_source_pattern_init_copy (cairo_pattern_t *abstract_pattern,
     cairo_status_t status;
 
     VG (VALGRIND_MAKE_MEM_UNDEFINED (pattern, sizeof (cairo_raster_source_pattern_t)));
-    memcpy(pattern, other, sizeof (cairo_raster_source_pattern_t));
+    memcpy(pattern, (cairo_raster_source_pattern_t *) other, sizeof (cairo_raster_source_pattern_t));
 
     status = CAIRO_STATUS_SUCCESS;
     if (pattern->copy)

@@ -85,22 +85,10 @@ _cairo_boxes_get_extents (const cairo_box_t *boxes,
 			  int num_boxes,
 			  cairo_box_t *extents)
 {
-    int n;
-
     assert (num_boxes > 0);
     *extents = *boxes;
-
-    for (n = 1; n < num_boxes; n++) {
-	if (boxes[n].p1.x < extents->p1.x)
-	    extents->p1.x = boxes[n].p1.x;
-	if (boxes[n].p2.x > extents->p2.x)
-	    extents->p2.x = boxes[n].p2.x;
-
-	if (boxes[n].p1.y < extents->p1.y)
-	    extents->p1.y = boxes[n].p1.y;
-	if (boxes[n].p2.y > extents->p2.y)
-	    extents->p2.y = boxes[n].p2.y;
-    }
+    while (--num_boxes)
+	_cairo_box_add_box (extents, ++boxes);
 }
 
 /* XXX We currently have a confusing mix of boxes and rectangles as
@@ -140,6 +128,37 @@ _cairo_rectangle_intersect (cairo_rectangle_int_t *dst,
      */
     x2 = MIN (dst->x + (int) dst->width,  src->x + (int) src->width);
     y2 = MIN (dst->y + (int) dst->height, src->y + (int) src->height);
+
+    if (x1 >= x2 || y1 >= y2) {
+	dst->x = 0;
+	dst->y = 0;
+	dst->width  = 0;
+	dst->height = 0;
+
+	return FALSE;
+    } else {
+	dst->x = x1;
+	dst->y = y1;
+	dst->width  = x2 - x1;
+	dst->height = y2 - y1;
+
+	return TRUE;
+    }
+}
+
+cairo_bool_t
+_cairo_rectangle_exact_intersect (cairo_rectangle_t *dst,
+				  const cairo_rectangle_t *src)
+{
+    double x1, y1, x2, y2;
+
+    x1 = MAX (dst->x, src->x);
+    y1 = MAX (dst->y, src->y);
+    /* Beware the unsigned promotion, fortunately we have bits to spare
+     * as (CAIRO_RECT_INT_MAX - CAIRO_RECT_INT_MIN) < UINT_MAX
+     */
+    x2 = MIN (dst->x + dst->width,  src->x + src->width);
+    y2 = MIN (dst->y + dst->height, src->y + src->height);
 
     if (x1 >= x2 || y1 >= y2) {
 	dst->x = 0;
@@ -201,7 +220,7 @@ _cairo_rectangle_union (cairo_rectangle_int_t *dst,
  */
 
 cairo_bool_t
-_cairo_box_intersects_line_segment (cairo_box_t *box, cairo_line_t *line)
+_cairo_box_intersects_line_segment (const cairo_box_t *box, cairo_line_t *line)
 {
     cairo_fixed_t t1=0, t2=0, t3=0, t4=0;
     cairo_int64_t t1y, t2y, t3x, t4x;

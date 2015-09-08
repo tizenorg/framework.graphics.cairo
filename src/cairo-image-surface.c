@@ -53,11 +53,16 @@
 #include "cairo-scaled-font-private.h"
 #include "cairo-surface-snapshot-private.h"
 #include "cairo-surface-subsurface-private.h"
+#include "cairo-surface-shadow-private.h"
+#include "cairo-list-inline.h"
 
 /* Limit on the width / height of an image surface in pixels.  This is
  * mainly determined by coordinates of things sent to pixman at the
  * moment being in 16.16 format. */
 #define MAX_IMAGE_SIZE 32767
+
+#define MAX_IMAGE_SHADOW_SIZE 256
+#define MIN_IMAGE_SHADOW_SIZE 32
 
 /**
  * SECTION:cairo-image
@@ -79,6 +84,120 @@
  *
  * Since: 1.8
  **/
+
+static cairo_list_t shadow_caches;
+static unsigned long shadow_caches_size = 0;
+static cairo_recursive_mutex_t shadow_caches_mutex;
+static unsigned shadow_caches_mutex_depth = 0;
+static cairo_atomic_int_t shadow_caches_ref_count = 0;
+
+static void
+_cairo_image_shadow_caches_init (void)
+{
+    _cairo_atomic_int_inc (&shadow_caches_ref_count);
+
+    if (shadow_caches_ref_count == 1)
+	cairo_list_init (&shadow_caches);
+
+    CAIRO_RECURSIVE_MUTEX_INIT (shadow_caches_mutex);
+}
+
+static void
+_cairo_image_shadow_caches_destroy (void)
+{
+    assert (shadow_caches_ref_count != 0);
+
+    if (! _cairo_atomic_int_dec_and_test (&shadow_caches_ref_count))
+	return;
+
+    if (shadow_caches_mutex_depth == 0) {
+	CAIRO_MUTEX_FINI (shadow_caches_mutex);
+
+	while (! cairo_list_is_empty (&shadow_caches)) {
+	    cairo_shadow_cache_t *shadow;
+
+	    shadow = cairo_list_first_entry (&shadow_caches,
+					     cairo_shadow_cache_t,
+					     link);
+	    cairo_list_del (&shadow->link);
+	    cairo_surface_destroy (shadow->surface);
+	    free (shadow);
+	}
+	shadow_caches_size = 0;
+    }
+}
+
+static cairo_status_t
+_cairo_image_surface_shadow_cache_acquire (void *abstract_surface)
+{
+    cairo_image_surface_t *surface = abstract_surface;
+
+    if (! surface || surface->base.type != CAIRO_SURFACE_TYPE_IMAGE)
+	return CAIRO_STATUS_SURFACE_TYPE_MISMATCH;
+
+    if (unlikely (surface->base.status))
+	return surface->base.status;
+
+    CAIRO_MUTEX_LOCK (shadow_caches_mutex);
+    shadow_caches_mutex_depth++;
+
+    return CAIRO_STATUS_SUCCESS;
+}
+
+static void
+_cairo_image_surface_shadow_cache_release (void *abstract_surface)
+{
+    cairo_image_surface_t *surface = abstract_surface;
+
+    if (! surface || surface->base.type != CAIRO_SURFACE_TYPE_IMAGE)
+	return;
+
+    if (unlikely (surface->base.status))
+	return;
+
+    assert (shadow_caches_mutex_depth > 0);
+    shadow_caches_mutex_depth--;
+
+    CAIRO_MUTEX_UNLOCK (shadow_caches_mutex);
+}
+
+static cairo_list_t *
+_cairo_image_surface_get_shadow_cache (void *abstract_surface)
+{
+    cairo_image_surface_t *surface = abstract_surface;
+
+    if (! surface || surface->base.type != CAIRO_SURFACE_TYPE_IMAGE)
+	return NULL;
+
+    if (unlikely (surface->base.status))
+	return NULL;
+
+    return &shadow_caches;
+}
+
+static unsigned long *
+_cairo_image_surface_get_shadow_cache_size (void *abstract_surface)
+{
+    cairo_image_surface_t *surface = abstract_surface;
+
+    if (! surface || surface->base.type != CAIRO_SURFACE_TYPE_IMAGE)
+	return NULL;
+
+    if (unlikely (surface->base.status))
+	return NULL;
+
+    return &shadow_caches_size;
+}
+
+static cairo_bool_t
+_cairo_image_surface_has_shadow_cache (void *abstract_surface)
+{
+    cairo_image_surface_t *surface = abstract_surface;
+
+    if (! surface || surface->base.type != CAIRO_SURFACE_TYPE_IMAGE)
+	return FALSE;
+    return TRUE;
+}
 
 static cairo_bool_t
 _cairo_image_surface_is_size_valid (int width, int height)
@@ -165,6 +284,8 @@ _cairo_image_surface_init (cairo_image_surface_t *surface,
     surface->base.is_clear = surface->width == 0 || surface->height == 0;
 
     surface->compositor = _cairo_image_spans_compositor_get ();
+
+    _cairo_image_shadow_caches_init ();
 }
 
 cairo_surface_t *
@@ -723,7 +844,7 @@ _cairo_format_bits_per_pixel (cairo_format_t format)
     }
 }
 
-static cairo_surface_t *
+cairo_surface_t *
 _cairo_image_surface_create_similar (void	       *abstract_other,
 				     cairo_content_t	content,
 				     int		width,
@@ -762,12 +883,12 @@ _cairo_image_surface_snapshot (void *abstract_surface)
 	    return &clone->base;
 
 	image->pixman_image = NULL;
-	image->owns_data = FALSE;
 
 	clone->transparency = image->transparency;
 	clone->color = image->color;
 
-	clone->owns_data = FALSE;
+	clone->owns_data = image->owns_data;
+	image->owns_data = FALSE;
 	return &clone->base;
     }
 
@@ -794,7 +915,7 @@ _cairo_image_surface_snapshot (void *abstract_surface)
     return &clone->base;
 }
 
-cairo_surface_t *
+cairo_image_surface_t *
 _cairo_image_surface_map_to_image (void *abstract_other,
 				   const cairo_rectangle_int_t *extents)
 {
@@ -814,13 +935,16 @@ _cairo_image_surface_map_to_image (void *abstract_other,
 							other->stride);
 
     cairo_surface_set_device_offset (surface, -extents->x, -extents->y);
-    return surface;
+    return (cairo_image_surface_t *) surface;
 }
 
 cairo_int_status_t
 _cairo_image_surface_unmap_image (void *abstract_surface,
 				  cairo_image_surface_t *image)
 {
+    cairo_surface_finish (&image->base);
+    cairo_surface_destroy (&image->base);
+
     return CAIRO_INT_STATUS_SUCCESS;
 }
 
@@ -843,6 +967,8 @@ _cairo_image_surface_finish (void *abstract_surface)
 	cairo_surface_destroy (surface->parent);
 	surface->parent = NULL;
     }
+
+    _cairo_image_shadow_caches_destroy ();
 
     return CAIRO_STATUS_SUCCESS;
 }
@@ -908,12 +1034,32 @@ _cairo_image_surface_paint (void			*abstract_surface,
 			    const cairo_clip_t		*clip)
 {
     cairo_image_surface_t *surface = abstract_surface;
+    cairo_int_status_t status;
 
     TRACE ((stderr, "%s (surface=%d)\n",
 	    __FUNCTION__, surface->base.unique_id));
 
-    return _cairo_compositor_paint (surface->compositor,
-				    &surface->base, op, source, clip);
+    status = cairo_device_acquire (surface->base.device);
+    if (unlikely (status))
+	return status;
+
+    status = _cairo_surface_shadow_paint (abstract_surface, op, source,
+					  clip, &source->shadow);
+
+    if (unlikely (status)) {
+	cairo_device_release (surface->base.device);
+	return status;
+    }
+
+    if (source->shadow.draw_shadow_only) {
+	cairo_device_release (surface->base.device);
+	return status;
+    }
+
+    status = _cairo_compositor_paint (surface->compositor,
+				      &surface->base, op, source, clip);
+    cairo_device_release (surface->base.device);
+    return status;
 }
 
 cairo_int_status_t
@@ -924,12 +1070,32 @@ _cairo_image_surface_mask (void				*abstract_surface,
 			   const cairo_clip_t		*clip)
 {
     cairo_image_surface_t *surface = abstract_surface;
+    cairo_int_status_t status;
 
     TRACE ((stderr, "%s (surface=%d)\n",
 	    __FUNCTION__, surface->base.unique_id));
 
-    return _cairo_compositor_mask (surface->compositor,
-				   &surface->base, op, source, mask, clip);
+    status = cairo_device_acquire (surface->base.device);
+    if (unlikely (status))
+	return status;
+
+    status = _cairo_surface_shadow_mask (abstract_surface, op, source,
+					 mask, clip, &source->shadow);
+
+    if (unlikely (status)) {
+	cairo_device_release (surface->base.device);
+	return status;
+    }
+
+    if (source->shadow.draw_shadow_only) {
+	cairo_device_release (surface->base.device);
+	return status;
+    }
+
+    status = _cairo_compositor_mask (surface->compositor,
+				     &surface->base, op, source, mask, clip);
+    cairo_device_release (surface->base.device);
+    return status;
 }
 
 cairo_int_status_t
@@ -944,15 +1110,53 @@ _cairo_image_surface_stroke (void			*abstract_surface,
 			     cairo_antialias_t		 antialias,
 			     const cairo_clip_t		*clip)
 {
+    cairo_int_status_t status;
     cairo_image_surface_t *surface = abstract_surface;
+    cairo_shadow_type_t shadow_type = source->shadow.type;
 
     TRACE ((stderr, "%s (surface=%d)\n",
 	    __FUNCTION__, surface->base.unique_id));
 
-    return _cairo_compositor_stroke (surface->compositor, &surface->base,
-				     op, source, path,
-				     style, ctm, ctm_inverse,
-				     tolerance, antialias, clip);
+    status = cairo_device_acquire (surface->base.device);
+    if (unlikely (status))
+	return status;
+
+    if (shadow_type != CAIRO_SHADOW_INSET)
+	status = _cairo_surface_shadow_stroke (abstract_surface, op, source,
+					       path, style, ctm, ctm_inverse,
+					       tolerance, antialias, clip,
+					       &source->shadow);
+
+    if (unlikely (status)) {
+	cairo_device_release (surface->base.device);
+	return status;
+    }
+
+    if (shadow_type == CAIRO_SHADOW_DROP &&
+	source->shadow.draw_shadow_only) {
+	cairo_device_release (surface->base.device);
+	return status;
+    }
+
+    if (! source->shadow.draw_shadow_only)
+	status = _cairo_compositor_stroke (surface->compositor, &surface->base,
+					   op, source, path,
+					   style, ctm, ctm_inverse,
+					   tolerance, antialias, clip);
+
+    if (unlikely (status)) {
+	cairo_device_release (surface->base.device);
+	return status;
+    }
+
+    if (shadow_type == CAIRO_SHADOW_INSET)
+	status = _cairo_surface_shadow_stroke (abstract_surface, op, source,
+					       path, style, ctm, ctm_inverse,
+					       tolerance, antialias, clip,
+					       &source->shadow);
+
+    cairo_device_release (surface->base.device);
+    return status;
 }
 
 cairo_int_status_t
@@ -965,15 +1169,62 @@ _cairo_image_surface_fill (void				*abstract_surface,
 			   cairo_antialias_t		 antialias,
 			   const cairo_clip_t		*clip)
 {
+    cairo_int_status_t status;
     cairo_image_surface_t *surface = abstract_surface;
+    cairo_shadow_type_t shadow_type = source->shadow.type;
 
     TRACE ((stderr, "%s (surface=%d)\n",
 	    __FUNCTION__, surface->base.unique_id));
 
-    return _cairo_compositor_fill (surface->compositor, &surface->base,
-				   op, source, path,
-				   fill_rule, tolerance, antialias,
-				   clip);
+    status = cairo_device_acquire (surface->base.device);
+    if (unlikely (status))
+	return status;
+
+    if (shadow_type != CAIRO_SHADOW_INSET)
+	status = _cairo_surface_shadow_fill (abstract_surface, op, source,
+					     path, fill_rule,
+					     tolerance, antialias, clip,
+					     &source->shadow);
+
+    if (unlikely (status)) {
+	cairo_device_release (surface->base.device);
+	return status;
+    }
+
+    if (shadow_type == CAIRO_SHADOW_DROP &&
+	source->shadow.draw_shadow_only) {
+	cairo_device_release (surface->base.device);
+	return status;
+    }
+
+    if (! source->shadow.draw_shadow_only) {
+	if (! source->shadow.path_is_fill_with_spread ||
+	    source->shadow.type != CAIRO_SHADOW_INSET)
+	    status = _cairo_compositor_fill (surface->compositor,
+					     &surface->base,
+					     op, source, path,
+					     fill_rule, tolerance,
+					     antialias,
+					     clip);
+	else
+	    status = _cairo_compositor_paint (surface->compositor,
+					      &surface->base,
+					      op, source, clip);
+    }
+
+    if (unlikely (status)) {
+	cairo_device_release (surface->base.device);
+	return status;
+    }
+
+    if (shadow_type == CAIRO_SHADOW_INSET)
+	status = _cairo_surface_shadow_fill (abstract_surface, op, source,
+					     path, fill_rule,
+					     tolerance, antialias, clip,
+					     &source->shadow);
+
+    cairo_device_release (surface->base.device);
+    return status;
 }
 
 cairo_int_status_t
@@ -985,15 +1236,55 @@ _cairo_image_surface_glyphs (void			*abstract_surface,
 			     cairo_scaled_font_t	*scaled_font,
 			     const cairo_clip_t		*clip)
 {
+    cairo_int_status_t status;
     cairo_image_surface_t *surface = abstract_surface;
+    cairo_shadow_type_t shadow_type = source->shadow.type;
 
     TRACE ((stderr, "%s (surface=%d)\n",
 	    __FUNCTION__, surface->base.unique_id));
 
-    return _cairo_compositor_glyphs (surface->compositor, &surface->base,
-				     op, source,
-				     glyphs, num_glyphs, scaled_font,
-				     clip);
+    status = cairo_device_acquire (surface->base.device);
+    if (unlikely (status))
+	return status;
+
+    if (shadow_type != CAIRO_SHADOW_INSET)
+	status = _cairo_surface_shadow_glyphs (abstract_surface, op, source,
+					       scaled_font,
+					       glyphs, num_glyphs,
+					       clip,
+					       &source->shadow);
+
+    if (unlikely (status)) {
+	cairo_device_release (surface->base.device);
+	return status;
+    }
+
+    if (shadow_type == CAIRO_SHADOW_DROP &&
+	source->shadow.draw_shadow_only) {
+	cairo_device_release (surface->base.device);
+	return status;
+    }
+
+    if (! source->shadow.draw_shadow_only)
+	status = _cairo_compositor_glyphs (surface->compositor, &surface->base,
+					   op, source,
+					   glyphs, num_glyphs, scaled_font,
+					   clip);
+
+    if (unlikely (status)) {
+	cairo_device_release (surface->base.device);
+	return status;
+    }
+
+    if (shadow_type == CAIRO_SHADOW_INSET)
+	status = _cairo_surface_shadow_glyphs (abstract_surface, op, source,
+					       scaled_font,
+					       glyphs, num_glyphs,
+					       clip,
+					       &source->shadow);
+
+    cairo_device_release (surface->base.device);
+    return status;
 }
 
 void
@@ -1004,6 +1295,64 @@ _cairo_image_surface_get_font_options (void                  *abstract_surface,
 
     cairo_font_options_set_hint_metrics (options, CAIRO_HINT_METRICS_ON);
     _cairo_font_options_set_round_glyph_positions (options, CAIRO_ROUND_GLYPH_POS_ON);
+}
+
+static cairo_surface_t *
+_cairo_image_surface_shadow_surface (void *surface,
+				     cairo_bool_t has_blur,
+				     int width, int height,
+				     int *width_out, int *height_out)
+{
+    int shadow_width, shadow_height;
+    cairo_image_surface_t *shadow_surface = NULL;
+
+    if (width < MIN_IMAGE_SHADOW_SIZE)
+	shadow_width = width;
+    else if (has_blur) {
+	if (width < MIN_IMAGE_SHADOW_SIZE * 2)
+	    shadow_width = MIN_IMAGE_SHADOW_SIZE;
+	else if (width > MAX_IMAGE_SHADOW_SIZE * 2)
+	    shadow_width = MAX_IMAGE_SHADOW_SIZE;
+	else
+	    shadow_width = width * 0.5;
+    }
+    else {
+	if (width > MAX_IMAGE_SHADOW_SIZE)
+	    shadow_width = MAX_IMAGE_SHADOW_SIZE;
+	else
+	    shadow_width = width;
+    }
+
+    if (height < MIN_IMAGE_SHADOW_SIZE)
+	shadow_height = height;
+    else if (has_blur) {
+	if (height < MIN_IMAGE_SHADOW_SIZE * 2)
+	    shadow_height = MIN_IMAGE_SHADOW_SIZE;
+	else if (height > MAX_IMAGE_SHADOW_SIZE * 2)
+	    shadow_height = MAX_IMAGE_SHADOW_SIZE;
+	else
+	    shadow_height = height * 0.5;
+    }
+    else {
+	if (height > MAX_IMAGE_SHADOW_SIZE)
+	    shadow_height = MAX_IMAGE_SHADOW_SIZE;
+	else
+	    shadow_height = height;
+    }
+
+    shadow_surface = (cairo_image_surface_t *)
+		cairo_image_surface_create (CAIRO_FORMAT_ARGB32,
+					    shadow_width,
+					    shadow_height);
+    if (unlikely (shadow_surface->base.status)) {
+	cairo_surface_destroy (&shadow_surface->base);
+	return NULL;
+    }
+
+    *width_out = shadow_width;
+    *height_out = shadow_height;
+
+    return &shadow_surface->base;
 }
 
 const cairo_surface_backend_t _cairo_image_surface_backend = {
@@ -1037,6 +1386,18 @@ const cairo_surface_backend_t _cairo_image_surface_backend = {
     _cairo_image_surface_fill,
     NULL, /* fill-stroke */
     _cairo_image_surface_glyphs,
+    NULL, /* has_text_glyphs */
+    NULL, /* show_text_glyphs */
+    NULL, /* get_supported_mime_types */
+    _cairo_image_surface_shadow_surface,
+    NULL, /* get_glyph_shadow_surface */
+    NULL, /* get_shadow_mask_surface */
+    NULL, /* get_glyph_shadow_mask_surface */
+    _cairo_image_surface_shadow_cache_acquire,
+    _cairo_image_surface_shadow_cache_release,
+    _cairo_image_surface_get_shadow_cache,
+    _cairo_image_surface_get_shadow_cache_size,
+    _cairo_image_surface_has_shadow_cache,
 };
 
 /* A convenience function for when one needs to coerce an image
@@ -1083,6 +1444,62 @@ _cairo_image_surface_coerce_to_format (cairo_image_surface_t *surface,
 	surface->base.device_transform_inverse;
 
     return clone;
+}
+
+cairo_image_surface_t *
+_cairo_image_surface_create_from_image (cairo_image_surface_t *other,
+					pixman_format_code_t format,
+					int x, int y,
+					int width, int height, int stride)
+{
+    cairo_image_surface_t *surface = NULL;
+    cairo_status_t status;
+    pixman_image_t *image;
+    void *mem = NULL;
+
+    status = other->base.status;
+    if (unlikely (status))
+	goto cleanup;
+
+    if (stride) {
+	mem = _cairo_malloc_ab (height, stride);
+	if (unlikely (mem == NULL)) {
+	    status = _cairo_error (CAIRO_STATUS_NO_MEMORY);
+	    goto cleanup;
+	}
+    }
+
+    image = pixman_image_create_bits (format, width, height, mem, stride);
+    if (unlikely (image == NULL)) {
+	status = _cairo_error (CAIRO_STATUS_NO_MEMORY);
+	goto cleanup_mem;
+    }
+
+    surface = (cairo_image_surface_t *)
+	_cairo_image_surface_create_for_pixman_image (image, format);
+    if (unlikely (surface->base.status)) {
+	status = surface->base.status;
+	goto cleanup_image;
+    }
+
+    pixman_image_composite32 (PIXMAN_OP_SRC,
+                              other->pixman_image, NULL, image,
+                              x, y,
+                              0, 0,
+                              0, 0,
+                              width, height);
+    surface->base.is_clear = FALSE;
+    surface->owns_data = mem != NULL;
+
+    return surface;
+
+cleanup_image:
+    pixman_image_unref (image);
+cleanup_mem:
+    free (mem);
+cleanup:
+    cairo_surface_destroy (&surface->base);
+    return (cairo_image_surface_t *) _cairo_surface_create_in_error (status);
 }
 
 cairo_image_transparency_t
@@ -1201,4 +1618,54 @@ _cairo_image_analyze_color (cairo_image_surface_t      *image)
     }
 
     return image->color = CAIRO_IMAGE_IS_COLOR;
+}
+
+cairo_image_surface_t *
+_cairo_image_surface_clone_subimage (cairo_surface_t             *surface,
+				     const cairo_rectangle_int_t *extents)
+{
+    cairo_surface_t *image;
+    cairo_surface_pattern_t pattern;
+    cairo_status_t status;
+
+    image = cairo_surface_create_similar_image (surface,
+						_cairo_format_from_content (surface->content),
+						extents->width,
+						extents->height);
+    if (image->status)
+	return to_image_surface (image);
+
+    /* TODO: check me with non-identity device_transform. Should we
+     * clone the scaling, too? */
+    cairo_surface_set_device_offset (image,
+				     -extents->x,
+				     -extents->y);
+
+    _cairo_pattern_init_for_surface (&pattern, surface);
+    pattern.base.filter = CAIRO_FILTER_NEAREST;
+
+    status = _cairo_surface_paint (image,
+				   CAIRO_OPERATOR_SOURCE,
+				   &pattern.base,
+				   NULL);
+
+    _cairo_pattern_fini (&pattern.base);
+
+    if (unlikely (status))
+	goto error;
+
+    /* We use the parent as a flag during map-to-image/umap-image that the
+     * resultant image came from a fallback rather than as direct call
+     * to the backend's map_to_image(). Whilst we use it as a simple flag,
+     * we need to make sure the parent surface obeys the reference counting
+     * semantics and is consistent for all callers.
+     */
+    _cairo_image_surface_set_parent (to_image_surface (image),
+				     cairo_surface_reference (surface));
+
+    return to_image_surface (image);
+
+error:
+    cairo_surface_destroy (image);
+    return to_image_surface (_cairo_surface_create_in_error (status));
 }

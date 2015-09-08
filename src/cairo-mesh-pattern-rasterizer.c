@@ -900,6 +900,10 @@ _cairo_mesh_pattern_rasterize (const cairo_mesh_pattern_t *mesh,
 
     n = _cairo_array_num_elements (&mesh->patches);
     patch = _cairo_array_index_const (&mesh->patches, 0);
+    if (patch == NULL)
+	status = CAIRO_STATUS_NULL_POINTER;
+    assert (status == CAIRO_STATUS_SUCCESS);
+
     for (i = 0; i < n; i++) {
 	for (j = 0; j < 4; j++) {
 	    for (k = 0; k < 4; k++) {

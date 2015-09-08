@@ -194,6 +194,7 @@ struct _cairo_font_options {
     cairo_hint_style_t hint_style;
     cairo_hint_metrics_t hint_metrics;
     cairo_round_glyph_positions_t round_glyph_positions;
+	cairo_font_color_t color;
 };
 
 struct _cairo_glyph_text_info {
@@ -424,6 +425,29 @@ typedef struct _cairo_unscaled_font {
     cairo_reference_count_t		 ref_count;
     const cairo_unscaled_font_backend_t	*backend;
 } cairo_unscaled_font_t;
+
+typedef struct _cairo_shadow {
+    double x_offset;
+    double y_offset;
+    cairo_shadow_type_t type;
+    double 	x_blur;
+    double	y_blur;
+    cairo_color_t color;
+    cairo_bool_t path_is_fill_with_spread;
+    cairo_bool_t  enable_cache;
+    cairo_bool_t draw_shadow_only;
+} cairo_shadow_t;
+
+typedef struct _cairo_shadow_cache {
+    cairo_surface_t *surface;
+    unsigned long    hash;
+    unsigned long    size;
+    double	     x_blur;
+    double	     y_blur;
+    double           scale;
+    cairo_list_t     link;
+} cairo_shadow_cache_t;
+
 CAIRO_END_DECLS
 
 #endif /* CAIRO_TYPES_PRIVATE_H */

@@ -46,17 +46,298 @@
 #include "cairo-compositor-private.h"
 #include "cairo-default-context-private.h"
 #include "cairo-error-private.h"
-#include "cairo-image-surface-private.h"
+#include "cairo-image-surface-inline.h"
 #include "cairo-surface-backend-private.h"
+#include "cairo-surface-shadow-private.h"
+#include "cairo-surface-scale-translate-private.h"
 
 static const cairo_surface_backend_t _cairo_gl_surface_backend;
 
 static cairo_status_t
-_cairo_gl_surface_flush (void *abstract_surface);
+_cairo_gl_surface_flush (void *abstract_surface, unsigned flags);
 
 static cairo_bool_t _cairo_surface_is_gl (cairo_surface_t *surface)
 {
     return surface->backend == &_cairo_gl_surface_backend;
+}
+
+static cairo_surface_t *
+_cairo_gl_surface_shadow_surface (void *surface,
+				  const cairo_bool_t has_blur,
+				  int width, int height,
+				  int *width_out, int *height_out)
+{
+    int shadow_width, shadow_height;
+    cairo_gl_surface_t *shadow_surface = NULL;
+
+    cairo_gl_surface_t *dst = (cairo_gl_surface_t *)surface;
+    cairo_gl_context_t *ctx = (cairo_gl_context_t *)dst->base.device;
+    if (ctx == NULL)
+	return NULL;
+
+    shadow_surface = ctx->shadow_scratch_surfaces[0];
+
+    if (shadow_surface) {
+	shadow_width = shadow_surface->width;
+	shadow_height = shadow_surface->height;
+
+	if (! has_blur) {
+	    if(shadow_width >= width &&
+	       shadow_height >= height) {
+		*width_out = width;
+		*height_out = height;
+		return cairo_surface_reference (&shadow_surface->base);
+	    }
+	    else {
+		cairo_surface_destroy (&shadow_surface->base);
+		shadow_surface = NULL;
+	    }
+	}
+	else {
+	    if (shadow_width * 2 < width &&
+		shadow_height * 2 < height) {
+		if (shadow_width < MAX_SCRATCH_SIZE ||
+		    shadow_height < MAX_SCRATCH_SIZE) {
+		    cairo_surface_destroy (&shadow_surface->base);
+		    shadow_surface = NULL;
+		}
+	    }
+	    else if (shadow_width > 4 * width &&
+		     shadow_height > 4 * height) {
+		cairo_surface_destroy (&shadow_surface->base);
+		shadow_surface = NULL;
+	    }
+	}
+    }
+
+    if (! shadow_surface) {
+	shadow_width = shadow_height = MIN_SCRATCH_SIZE;
+	if (has_blur) {
+	    while (shadow_width * 2 < width) {
+		shadow_width *= 2;
+		if (shadow_width == MAX_SCRATCH_SIZE)
+		    break;
+		else if (shadow_width > MAX_SCRATCH_SIZE) {
+		    shadow_width *= 0.5;
+		    break;
+		}
+	    }
+	    while (shadow_height * 2 < height) {
+		shadow_height *= 2;
+		if (shadow_height == MAX_SCRATCH_SIZE)
+		    break;
+		else if (shadow_height > MAX_SCRATCH_SIZE) {
+		    shadow_height *= 0.5;
+		    break;
+		}
+	    }
+	}
+	else {
+	    while (shadow_width < width) {
+		shadow_width *= 2;
+		if (shadow_width == MAX_SCRATCH_SIZE)
+		    break;
+		else if (shadow_width > MAX_SCRATCH_SIZE) {
+		    shadow_width *= 0.5;
+		    break;
+		}
+	    }
+	    while (shadow_height < height) {
+		shadow_height *= 2;
+		if (shadow_height == MAX_SCRATCH_SIZE)
+		    break;
+		else if (shadow_height > MAX_SCRATCH_SIZE) {
+		    shadow_height *= 0.5;
+		    break;
+		}
+	    }
+	}
+
+
+	shadow_surface = (cairo_gl_surface_t *)
+		_cairo_gl_surface_create_scratch (ctx,
+						  CAIRO_CONTENT_COLOR_ALPHA,
+						  shadow_width,
+						  shadow_height);
+	if (unlikely (shadow_surface->base.status)) {
+	    cairo_surface_destroy (&shadow_surface->base);
+	    return NULL;
+	}
+
+	_cairo_surface_release_device_reference (&shadow_surface->base);
+    }
+
+    ctx->shadow_scratch_surfaces[0] = shadow_surface;
+
+    shadow_surface->needs_to_cache = FALSE;
+    shadow_surface->force_no_cache = TRUE;
+
+    *width_out = width;
+    *height_out = height;
+
+    if (has_blur) {
+	while (*width_out > shadow_width) {
+	    *width_out *= 0.5;
+	}
+
+	while (*height_out > shadow_height) {
+	    *height_out *= 0.5;
+	}
+    }
+    else {
+	if (*width_out > MAX_SCRATCH_SIZE)
+	    *width_out *= 0.5;
+	if (*height_out > MAX_SCRATCH_SIZE)
+	    *height_out *= 0.5;
+    }
+
+    return cairo_surface_reference (&shadow_surface->base);
+}
+
+static cairo_surface_t *
+_cairo_gl_surface_shadow_mask_surface (void *surface,
+				       int width, int height,
+				       unsigned int index)
+{
+    cairo_gl_surface_t *mask_surface = NULL;
+
+    cairo_gl_surface_t *dst = (cairo_gl_surface_t *)surface;
+    cairo_gl_context_t *ctx = (cairo_gl_context_t *)dst->base.device;
+    if (ctx == NULL)
+	return NULL;
+
+    if (index > 1)
+	return NULL;
+
+    mask_surface = ctx->shadow_masks[index];
+
+    if (mask_surface) {
+	if (mask_surface->width != width ||
+	    mask_surface->height != height) {
+	    cairo_surface_destroy (&mask_surface->base);
+	    mask_surface = NULL;
+	    ctx->shadow_masks[index] = NULL;
+	}
+    }
+
+    if (! mask_surface) {
+	mask_surface = (cairo_gl_surface_t *)
+		_cairo_gl_surface_create_scratch (ctx,
+						  CAIRO_CONTENT_COLOR_ALPHA,
+						  width,
+						  height);
+	if (unlikely (mask_surface->base.status)) {
+	    cairo_surface_destroy (&mask_surface->base);
+	    return NULL;
+	}
+	_cairo_surface_release_device_reference (&mask_surface->base);
+    }
+
+    ctx->shadow_masks[index] = mask_surface;
+
+    mask_surface->needs_to_cache = FALSE;
+    mask_surface->force_no_cache = TRUE;
+
+    return cairo_surface_reference (&mask_surface->base);
+}
+
+static cairo_surface_t *
+_cairo_gl_surface_glyph_shadow_surface (void *surface,
+					int width, int height,
+					cairo_bool_t for_source)
+{
+    int shadow_width, shadow_height;
+    cairo_gl_surface_t *shadow_surface = NULL;
+
+    cairo_gl_surface_t *dst = (cairo_gl_surface_t *)surface;
+    cairo_gl_context_t *ctx = (cairo_gl_context_t *)dst->base.device;
+    if (ctx == NULL)
+	return NULL;
+
+    if (! for_source)
+	shadow_surface = ctx->shadow_scratch_surfaces[1];
+    else
+	shadow_surface = ctx->shadow_scratch_surfaces[2];
+
+    if (shadow_surface) {
+	shadow_width = shadow_surface->width;
+	shadow_height = shadow_surface->height;
+
+	if (shadow_width < width ||
+	    shadow_height < height) {
+	   cairo_surface_destroy (&shadow_surface->base);
+	   shadow_surface = NULL;
+	}
+    }
+
+    if (! shadow_surface) {
+	shadow_surface = (cairo_gl_surface_t *)
+		_cairo_gl_surface_create_scratch (ctx,
+						  CAIRO_CONTENT_COLOR_ALPHA,
+						  width, height);
+	if (unlikely (shadow_surface->base.status)) {
+	    cairo_surface_destroy (&shadow_surface->base);
+	    return NULL;
+	}
+	_cairo_surface_release_device_reference (&shadow_surface->base);
+    }
+
+    if (! for_source)
+	ctx->shadow_scratch_surfaces[1] = shadow_surface;
+    else
+	ctx->shadow_scratch_surfaces[2] = shadow_surface;
+
+    shadow_surface->needs_to_cache = FALSE;
+    shadow_surface->force_no_cache = TRUE;
+
+    return cairo_surface_reference (&shadow_surface->base);
+}
+
+static cairo_surface_t *
+_cairo_gl_surface_glyph_shadow_mask_surface (void *surface,
+					     int width, int height,
+					     unsigned index)
+{
+    cairo_gl_surface_t *mask_surface = NULL;
+
+    cairo_gl_surface_t *dst = (cairo_gl_surface_t *)surface;
+    cairo_gl_context_t *ctx = (cairo_gl_context_t *)dst->base.device;
+    if (ctx == NULL)
+	return NULL;
+
+    if (index > 1)
+	return NULL;
+
+    mask_surface = ctx->shadow_masks[index + 2];
+
+    if (mask_surface) {
+	if (mask_surface->width != width ||
+	    mask_surface->height != height) {
+	    cairo_surface_destroy (&mask_surface->base);
+	    mask_surface = NULL;
+	    ctx->shadow_masks[index + 2] = NULL;
+	}
+    }
+
+    if (! mask_surface) {
+	mask_surface = (cairo_gl_surface_t *)
+		_cairo_gl_surface_create_scratch (ctx,
+						  CAIRO_CONTENT_ALPHA,
+						  width,
+						  height);
+	if (unlikely (mask_surface->base.status)) {
+	    cairo_surface_destroy (&mask_surface->base);
+	    return NULL;
+	}
+	_cairo_surface_release_device_reference (&mask_surface->base);
+    }
+
+    ctx->shadow_masks[index + 2] = mask_surface;
+
+    mask_surface->needs_to_cache = FALSE;
+    mask_surface->force_no_cache = TRUE;
+
+    return cairo_surface_reference (&mask_surface->base);
 }
 
 static cairo_bool_t
@@ -362,6 +643,7 @@ _cairo_gl_surface_embedded_operand_init (cairo_gl_surface_t *surface)
     operand->type = CAIRO_GL_OPERAND_TEXTURE;
     operand->texture.surface = surface;
     operand->texture.tex = surface->tex;
+    operand->pass = 0;
 
     if (_cairo_gl_device_requires_power_of_two_textures (surface->base.device)) {
 	cairo_matrix_init_identity (&attributes->matrix);
@@ -391,7 +673,19 @@ _cairo_gl_surface_init (cairo_device_t *device,
     surface->width = width;
     surface->height = height;
     surface->needs_update = FALSE;
+    surface->size_changed = FALSE;
     surface->needs_to_cache = FALSE;
+    surface->image_node = NULL;
+    surface->force_no_cache = FALSE;
+
+    surface->image_content_scale_x = 1.0;
+    surface->image_content_scale_y = 1.0;
+    surface->blur_stage = CAIRO_GL_BLUR_STAGE_NONE;
+
+    surface->clip_on_stencil_buffer = NULL;
+
+    surface->content_synced = TRUE;
+    surface->content_cleared = FALSE;
 
     _cairo_gl_surface_embedded_operand_init (surface);
 }
@@ -401,7 +695,8 @@ _cairo_gl_surface_create_scratch_for_texture (cairo_gl_context_t   *ctx,
 					      cairo_content_t	    content,
 					      GLuint		    tex,
 					      int		    width,
-					      int		    height)
+					      int		    height,
+					      cairo_bool_t set_tex_param)
 {
     cairo_gl_surface_t *surface;
 
@@ -414,32 +709,35 @@ _cairo_gl_surface_create_scratch_for_texture (cairo_gl_context_t   *ctx,
     _cairo_gl_surface_init (&ctx->base, surface, content, width, height);
 
     surface->supports_msaa = ctx->supports_msaa;
+    surface->num_samples = ctx->num_samples;
     surface->supports_stencil = TRUE;
 
     /* Create the texture used to store the surface's data. */
+    if (!set_tex_param) {
     _cairo_gl_context_activate (ctx, CAIRO_GL_TEX_TEMP);
-    glBindTexture (ctx->tex_target, surface->tex);
-    glTexParameteri (ctx->tex_target, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri (ctx->tex_target, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    ctx->dispatch.BindTexture (ctx->tex_target, surface->tex);
+    ctx->dispatch.TexParameteri (ctx->tex_target, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    ctx->dispatch.TexParameteri (ctx->tex_target, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    }
 
     return &surface->base;
 }
 
-cairo_surface_t *
-_cairo_gl_surface_create_scratch (cairo_gl_context_t   *ctx,
-				  cairo_content_t	content,
-				  int			width,
-				  int			height,
-				  cairo_bool_t		true_alpha)
+static cairo_surface_t *
+_create_scratch_internal (cairo_gl_context_t *ctx,
+			  cairo_content_t content,
+			  int width,
+			  int height,
+			  cairo_bool_t for_caching)
 {
     cairo_gl_surface_t *surface;
     GLenum format;
     GLuint tex;
 
-    glGenTextures (1, &tex);
+    ctx->dispatch.GenTextures (1, &tex);
     surface = (cairo_gl_surface_t *)
 	_cairo_gl_surface_create_scratch_for_texture (ctx, content,
-						      tex, width, height);
+						      tex, width, height, FALSE);
     if (unlikely (surface->base.status))
 	return &surface->base;
 
@@ -455,11 +753,16 @@ _cairo_gl_surface_create_scratch (cairo_gl_context_t   *ctx,
     default:
 	ASSERT_NOT_REACHED;
     case CAIRO_CONTENT_COLOR_ALPHA:
-	format = GL_RGBA;
+	if (ctx->can_read_bgra)
+	    format = GL_BGRA;
+	else
+	    format = GL_RGBA;
 	break;
     case CAIRO_CONTENT_ALPHA:
-	/* We want to be trying GL_ALPHA framebuffer objects here. */
-	if (true_alpha)
+	/* When using GL_ALPHA, compositing doesn't work properly, but for
+	 * caching surfaces, we are just uploading pixel data, so it isn't
+	 * an issue. */
+	if (for_caching)
 	    format = GL_ALPHA;
 	else
 	    format = GL_RGBA;
@@ -473,14 +776,36 @@ _cairo_gl_surface_create_scratch (cairo_gl_context_t   *ctx,
 	 * specified.  So, we have to store RGBA, and fill the alpha
 	 * channel with 1 when blending.
 	 */
-	format = GL_RGBA;
+	if (ctx->can_read_bgra)
+	    format = GL_BGRA;
+	else
+	    format = GL_RGBA;
 	break;
     }
 
-    glTexImage2D (ctx->tex_target, 0, format, width, height, 0,
+    ctx->dispatch.TexImage2D (ctx->tex_target, 0, format,
+			      width, height, 0,
 		  format, GL_UNSIGNED_BYTE, NULL);
 
     return &surface->base;
+}
+
+cairo_surface_t *
+_cairo_gl_surface_create_scratch (cairo_gl_context_t   *ctx,
+				  cairo_content_t	content,
+				  int			width,
+				  int			height)
+{
+    return _create_scratch_internal (ctx, content, width, height, FALSE);
+}
+
+cairo_surface_t *
+_cairo_gl_surface_create_scratch_for_caching (cairo_gl_context_t *ctx,
+					      cairo_content_t content,
+					      int width,
+					      int height)
+{
+    return _create_scratch_internal (ctx, content, width, height, TRUE);
 }
 
 static cairo_status_t
@@ -498,7 +823,16 @@ _cairo_gl_surface_clear (cairo_gl_surface_t  *surface,
     if (ctx->current_target == surface)
 	_cairo_gl_composite_flush (ctx);
 
-    _cairo_gl_context_set_destination (ctx, surface, surface->msaa_active);
+    /* FIXME:  for glesv3 and glesv2 with ANGLE extension of multisample
+       supports, it is much more expensive to paint texture back to
+       multisample renderbuffer.  Therefore, instead of clear
+       texture, we clear the renderbuffer.
+       In case, the next draw render target is texture, it will
+       blit renderbuffer back to texture */
+    if (ctx->gl_flavor != CAIRO_GL_FLAVOR_DESKTOP)
+	_cairo_gl_context_set_destination (ctx, surface, TRUE);
+    else
+	_cairo_gl_context_set_destination (ctx, surface, surface->msaa_active);
     if (surface->base.content & CAIRO_CONTENT_COLOR) {
         r = color->red   * color->alpha;
         g = color->green * color->alpha;
@@ -512,12 +846,63 @@ _cairo_gl_surface_clear (cairo_gl_surface_t  *surface,
         a = 1.0;
     }
 
-    _disable_scissor_buffer ();
-    glClearColor (r, g, b, a);
-    glClear (GL_COLOR_BUFFER_BIT);
+    _disable_scissor_buffer (ctx);
+    if (ctx->states_cache.clear_red != r ||
+	ctx->states_cache.clear_green != g ||
+	ctx->states_cache.clear_blue != b ||
+	ctx->states_cache.clear_alpha != a) {
+
+	ctx->states_cache.clear_red = r;
+	ctx->states_cache.clear_green = g;
+	ctx->states_cache.clear_blue = b;
+	ctx->states_cache.clear_alpha = a;
+
+	ctx->dispatch.ClearColor (r, g, b, a);
+    }
+
+    /* optimize for mobile gl driver with deferred rendering */
+    if (surface->clip_on_stencil_buffer ||
+	ctx->gl_flavor == CAIRO_GL_FLAVOR_DESKTOP)
+	ctx->dispatch.Clear (GL_COLOR_BUFFER_BIT);
+    else {
+		if (surface->clip_on_stencil_buffer) {
+			_cairo_clip_destroy(surface->clip_on_stencil_buffer);
+			surface->clip_on_stencil_buffer = NULL;
+		}
+		ctx->dispatch.Clear (GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    }
+
+    if (a == 0)
+	surface->base.is_clear = TRUE;
 
     surface->content_changed = TRUE;
+    surface->content_synced = FALSE;
+    surface->content_cleared = TRUE;
     return _cairo_gl_context_release (ctx, status);
+}
+
+static cairo_surface_t *
+_cairo_gl_surface_create_and_clear_scratch (cairo_gl_context_t *ctx,
+					    cairo_content_t content,
+					    int width,
+					    int height)
+{
+    cairo_gl_surface_t *surface;
+    cairo_int_status_t status;
+
+    surface = (cairo_gl_surface_t *)
+	_cairo_gl_surface_create_scratch (ctx, content, width, height);
+    if (unlikely (surface->base.status))
+	return &surface->base;
+
+    /* Cairo surfaces start out initialized to transparent (black) */
+    status = _cairo_gl_surface_clear (surface, CAIRO_COLOR_TRANSPARENT);
+    if (unlikely (status)) {
+	cairo_surface_destroy (&surface->base);
+	return _cairo_surface_create_in_error (status);
+    }
+
+    return &surface->base;
 }
 
 cairo_surface_t *
@@ -547,15 +932,12 @@ cairo_gl_surface_create (cairo_device_t		*abstract_device,
 	return _cairo_surface_create_in_error (status);
 
     surface = (cairo_gl_surface_t *)
-	_cairo_gl_surface_create_scratch (ctx, content, width, height, FALSE);
+	_cairo_gl_surface_create_and_clear_scratch (ctx, content, width, height);
     if (unlikely (surface->base.status)) {
 	status = _cairo_gl_context_release (ctx, surface->base.status);
 	cairo_surface_destroy (&surface->base);
 	return _cairo_surface_create_in_error (status);
     }
-
-    /* Cairo surfaces start out initialized to transparent (black) */
-    status = _cairo_gl_surface_clear (surface, CAIRO_COLOR_TRANSPARENT);
 
     status = _cairo_gl_context_release (ctx, status);
     if (unlikely (status)) {
@@ -623,7 +1005,7 @@ cairo_gl_surface_create_for_texture (cairo_device_t	*abstract_device,
 
     surface = (cairo_gl_surface_t *)
 	_cairo_gl_surface_create_scratch_for_texture (ctx, content,
-						      tex, width, height);
+						      tex, width, height, TRUE);
     status = _cairo_gl_context_release (ctx, status);
 
     return &surface->base;
@@ -654,7 +1036,7 @@ cairo_gl_surface_set_size (cairo_surface_t *abstract_surface,
     }
 
     if (surface->width != width || surface->height != height) {
-	surface->needs_update = TRUE;
+	surface->size_changed = TRUE;
 	surface->width = width;
 	surface->height = height;
     }
@@ -709,12 +1091,20 @@ cairo_gl_surface_swapbuffers (cairo_surface_t *abstract_surface)
         if (unlikely (status))
             return;
 
-	/* For swapping on EGL, at least, we need a valid context/target. */
-	_cairo_gl_context_set_destination (ctx, surface, FALSE);
 	/* And in any case we should flush any pending operations. */
 	_cairo_gl_composite_flush (ctx);
 
+	/* For swapping on EGL, at least, we need a valid context/target. */
+	_cairo_gl_context_set_destination (ctx, surface, FALSE);
+
 	ctx->swap_buffers (ctx, surface);
+
+	/* according to khronos specs on egl 1.4, stencil buffer is
+	 * not preserved after eglSwapBuffers */
+	if (surface->clip_on_stencil_buffer) {
+	    _cairo_clip_destroy (surface->clip_on_stencil_buffer);
+	    surface->clip_on_stencil_buffer = NULL;
+	}
 
         status = _cairo_gl_context_release (ctx, status);
         if (status)
@@ -749,8 +1139,7 @@ _cairo_gl_surface_create_similar (void		 *abstract_surface,
     if (unlikely (status))
 	return _cairo_surface_create_in_error (status);
 
-    surface = _cairo_gl_surface_create_scratch (ctx, content, width,
-						height, FALSE);
+    surface = _cairo_gl_surface_create_and_clear_scratch (ctx, content, width, height);
 
     status = _cairo_gl_context_release (ctx, status);
     if (unlikely (status)) {
@@ -771,7 +1160,7 @@ _cairo_gl_surface_fill_alpha_channel (cairo_gl_surface_t *dst,
     cairo_status_t status;
 
     _cairo_gl_composite_flush (ctx);
-    glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_TRUE);
+    ctx->dispatch.ColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_TRUE);
 
     status = _cairo_gl_composite_init (&setup, CAIRO_OPERATOR_SOURCE,
 				       dst, FALSE);
@@ -784,7 +1173,7 @@ _cairo_gl_surface_fill_alpha_channel (cairo_gl_surface_t *dst,
     if (unlikely (status))
         goto CLEANUP;
 
-    _cairo_gl_composite_emit_rect (ctx, x, y, x + width, y + height, 0);
+    _cairo_gl_context_emit_rect (ctx, x, y, x + width, y + height);
 
     status = _cairo_gl_context_release (ctx, status);
 
@@ -792,7 +1181,7 @@ _cairo_gl_surface_fill_alpha_channel (cairo_gl_surface_t *dst,
     _cairo_gl_composite_fini (&setup);
 
     _cairo_gl_composite_flush (ctx);
-    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    ctx->dispatch.ColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
     return status;
 }
@@ -802,18 +1191,62 @@ _cairo_gl_surface_draw_image (cairo_gl_surface_t *dst,
 			      cairo_image_surface_t *src,
 			      int src_x, int src_y,
 			      int width, int height,
-			      int dst_x, int dst_y)
+			      int dst_x, int dst_y,
+			      cairo_bool_t force_flush)
 {
     GLenum internal_format, format, type;
     cairo_bool_t has_alpha, needs_swap;
     cairo_image_surface_t *clone = NULL;
     cairo_gl_context_t *ctx;
     int cpp;
+    cairo_image_surface_t *rgba_clone = NULL;
     cairo_int_status_t status = CAIRO_INT_STATUS_SUCCESS;
 
     status = _cairo_gl_context_acquire (dst->base.device, &ctx);
     if (unlikely (status))
 	return status;
+
+    if (_cairo_gl_get_flavor (&ctx->dispatch) == CAIRO_GL_FLAVOR_ES2 ||
+	_cairo_gl_get_flavor (&ctx->dispatch) == CAIRO_GL_FLAVOR_ES3) {
+	pixman_format_code_t pixman_format;
+	cairo_surface_pattern_t pattern;
+	cairo_bool_t require_conversion = FALSE;
+	pixman_format = _cairo_is_little_endian () ? PIXMAN_a8b8g8r8 : PIXMAN_r8g8b8a8;
+
+	if (src->base.content != CAIRO_CONTENT_ALPHA) {
+	    if (src->pixman_format != pixman_format)
+		require_conversion = TRUE;
+	}
+	else if (dst->base.content != CAIRO_CONTENT_ALPHA)
+	    require_conversion = TRUE;
+	else {
+	    if (src->pixman_format == PIXMAN_a1) {
+		pixman_format = PIXMAN_a8;
+		require_conversion = TRUE;
+	    }
+	}
+
+	if (require_conversion) {
+	    rgba_clone = (cairo_image_surface_t *)
+		_cairo_image_surface_create_with_pixman_format (NULL,
+								pixman_format,
+								src->width,
+								src->height,
+								0);
+	    if (unlikely (rgba_clone->base.status))
+		goto FAIL;
+
+	    _cairo_pattern_init_for_surface (&pattern, &src->base);
+	    status = _cairo_surface_paint (&rgba_clone->base,
+					   CAIRO_OPERATOR_SOURCE,
+					   &pattern.base, NULL);
+	    _cairo_pattern_fini (&pattern.base);
+	    if (unlikely (status))
+		goto FAIL;
+
+	    src = rgba_clone;
+	}
+    }
 
     if (! _cairo_gl_get_image_format_and_type (ctx->gl_flavor,
 					       src->pixman_format,
@@ -844,9 +1277,11 @@ _cairo_gl_surface_draw_image (cairo_gl_surface_t *dst,
 
     cpp = PIXMAN_FORMAT_BPP (src->pixman_format) / 8;
 
-    status = _cairo_gl_surface_flush (&dst->base);
-    if (unlikely (status))
-	goto FAIL;
+    if (force_flush) {
+	status = _cairo_gl_surface_flush (&dst->base, 0);
+	if (unlikely (status))
+	    goto FAIL;
+    }
 
     if (_cairo_gl_surface_is_texture (dst)) {
 	void *data_start = src->data + src_y * src->stride + src_x * cpp;
@@ -861,11 +1296,11 @@ _cairo_gl_surface_draw_image (cairo_gl_surface_t *dst,
 	 *     alignment constraint
 	 */
 	if (src->stride < 0 ||
-	    (ctx->gl_flavor == CAIRO_GL_FLAVOR_ES &&
+	    (ctx->gl_flavor == CAIRO_GL_FLAVOR_ES2 &&
 	     (src->width * cpp < src->stride - 3 ||
 	      width != src->width)))
 	{
-	    glPixelStorei (GL_UNPACK_ALIGNMENT, 1);
+	    ctx->dispatch.PixelStorei (GL_UNPACK_ALIGNMENT, 1);
 	    status = _cairo_gl_surface_extract_image_data (src, src_x, src_y,
 							   width, height,
 							   &data_start_gles2);
@@ -876,16 +1311,25 @@ _cairo_gl_surface_draw_image (cairo_gl_surface_t *dst,
 	}
 	else
 	{
-	    glPixelStorei (GL_UNPACK_ALIGNMENT, 4);
-	    if (ctx->gl_flavor == CAIRO_GL_FLAVOR_DESKTOP)
-		glPixelStorei (GL_UNPACK_ROW_LENGTH, src->stride / cpp);
+	    ctx->dispatch.PixelStorei (GL_UNPACK_ALIGNMENT, 4);
+	    if (ctx->gl_flavor == CAIRO_GL_FLAVOR_DESKTOP ||
+		ctx->gl_flavor == CAIRO_GL_FLAVOR_ES3)
+		ctx->dispatch.PixelStorei (GL_UNPACK_ROW_LENGTH, src->stride / cpp);
 	}
 
+	/* we must resolve the renderbuffer to texture before we
+	   upload image */
+	status = _cairo_gl_surface_resolve_multisampling (dst);
+    if (unlikely (status)) {
+        free (data_start_gles2);
+        goto FAIL;
+    }
+
         _cairo_gl_context_activate (ctx, CAIRO_GL_TEX_TEMP);
-	glBindTexture (ctx->tex_target, dst->tex);
-	glTexParameteri (ctx->tex_target, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri (ctx->tex_target, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glTexSubImage2D (ctx->tex_target, 0,
+	ctx->dispatch.BindTexture (ctx->tex_target, dst->tex);
+	ctx->dispatch.TexParameteri (ctx->tex_target, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	ctx->dispatch.TexParameteri (ctx->tex_target, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	ctx->dispatch.TexSubImage2D (ctx->tex_target, 0,
 			 dst_x, dst_y, width, height,
 			 format, type, data_start);
 
@@ -899,13 +1343,15 @@ _cairo_gl_surface_draw_image (cairo_gl_surface_t *dst,
 	    _cairo_gl_surface_fill_alpha_channel (dst, ctx,
 						  dst_x, dst_y,
 						  width, height);
+
 	}
+	dst->content_synced = FALSE;
     } else {
         cairo_surface_t *tmp;
 
         tmp = _cairo_gl_surface_create_scratch (ctx,
                                                 dst->base.content,
-                                                width, height, FALSE);
+                                                width, height);
         if (unlikely (tmp->status))
             goto FAIL;
 
@@ -913,7 +1359,7 @@ _cairo_gl_surface_draw_image (cairo_gl_surface_t *dst,
                                                src,
                                                src_x, src_y,
                                                width, height,
-                                               0, 0);
+                                               0, 0, force_flush);
         if (status == CAIRO_INT_STATUS_SUCCESS) {
             cairo_surface_pattern_t tmp_pattern;
 	    cairo_rectangle_int_t r;
@@ -947,8 +1393,14 @@ FAIL:
     if (clone)
         cairo_surface_destroy (&clone->base);
 
-    if (likely (status))
+    if (rgba_clone)
+	cairo_surface_destroy (&rgba_clone->base);
+
+    if (status == CAIRO_INT_STATUS_SUCCESS) {
 	dst->content_changed = TRUE;
+	dst->content_synced = FALSE;
+    }
+
     return status;
 }
 
@@ -969,37 +1421,44 @@ _cairo_gl_surface_finish (void *abstract_surface)
     if (unlikely (status))
         return status;
 
-    if (ctx->operands[CAIRO_GL_TEX_SOURCE].type == CAIRO_GL_OPERAND_TEXTURE &&
-        ctx->operands[CAIRO_GL_TEX_SOURCE].texture.surface == surface) {
-	_cairo_gl_composite_flush (ctx);
+    if ((ctx->operands[CAIRO_GL_TEX_SOURCE].type == CAIRO_GL_OPERAND_TEXTURE ||
+	 ctx->operands[CAIRO_GL_TEX_SOURCE].type == CAIRO_GL_OPERAND_GAUSSIAN) &&
+        ctx->operands[CAIRO_GL_TEX_SOURCE].texture.surface == surface)
         _cairo_gl_context_destroy_operand (ctx, CAIRO_GL_TEX_SOURCE);
-    }
-    else if (ctx->operands[CAIRO_GL_TEX_MASK].type == CAIRO_GL_OPERAND_TEXTURE &&
-        ctx->operands[CAIRO_GL_TEX_MASK].texture.surface == surface) {
-	_cairo_gl_composite_flush (ctx);
+    if ((ctx->operands[CAIRO_GL_TEX_MASK].type == CAIRO_GL_OPERAND_TEXTURE ||
+	 ctx->operands[CAIRO_GL_TEX_MASK].type == CAIRO_GL_OPERAND_GAUSSIAN) &&
+        ctx->operands[CAIRO_GL_TEX_MASK].texture.surface == surface)
         _cairo_gl_context_destroy_operand (ctx, CAIRO_GL_TEX_MASK);
-    }
-
     if (ctx->current_target == surface)
 	ctx->current_target = NULL;
 
     if (surface->fb)
         ctx->dispatch.DeleteFramebuffers (1, &surface->fb);
+    if (surface->depth_stencil)
+        ctx->dispatch.DeleteRenderbuffers (1, &surface->depth_stencil);
     if (surface->owns_tex)
-	glDeleteTextures (1, &surface->tex);
+	ctx->dispatch.DeleteTextures (1, &surface->tex);
 
-#if CAIRO_HAS_GL_SURFACE
+    if (surface->msaa_depth_stencil)
+	ctx->dispatch.DeleteRenderbuffers (1, &surface->msaa_depth_stencil);
     if (surface->msaa_fb)
 	ctx->dispatch.DeleteFramebuffers (1, &surface->msaa_fb);
     if (surface->msaa_rb)
 	ctx->dispatch.DeleteRenderbuffers (1, &surface->msaa_rb);
-#endif
 
+    if (surface->image_node) {
+        surface->image_node->node.pinned = FALSE;
+	_cairo_rtree_node_remove (&ctx->image_cache->rtree,
+				  &surface->image_node->node);
+    }
+
+    if (surface->clip_on_stencil_buffer)
+        _cairo_clip_destroy (surface->clip_on_stencil_buffer);
 
     return _cairo_gl_context_release (ctx, status);
 }
 
-static cairo_surface_t *
+static cairo_image_surface_t *
 _cairo_gl_surface_map_to_image (void      *abstract_surface,
 				const cairo_rectangle_int_t   *extents)
 {
@@ -1009,9 +1468,14 @@ _cairo_gl_surface_map_to_image (void      *abstract_surface,
     GLenum format, type;
     pixman_format_code_t pixman_format;
     unsigned int cpp;
-    cairo_bool_t invert;
+    cairo_bool_t flipped, mesa_invert;
     cairo_status_t status;
     int y;
+
+    status = _cairo_gl_context_acquire (surface->base.device, &ctx);
+    if (unlikely (status)) {
+	return _cairo_image_surface_create_in_error (status);
+    }
 
     /* Want to use a switch statement here but the compiler gets whiny. */
     if (surface->base.content == CAIRO_CONTENT_COLOR_ALPHA) {
@@ -1034,25 +1498,27 @@ _cairo_gl_surface_map_to_image (void      *abstract_surface,
 	return NULL;
     }
 
-    /*
-     * GLES2 supports only RGBA, UNSIGNED_BYTE so use that.
-     * We are also using this format for ALPHA as GLES2 does not
-     * support GL_PACK_ROW_LENGTH anyway, and this makes sure that the
-     * pixman image that is created has row_stride = row_width * bpp.
-     */
-    if (_cairo_gl_surface_flavor (surface) == CAIRO_GL_FLAVOR_ES) {
-	format = GL_RGBA;
-	if (! _cairo_is_little_endian ()) {
-	    if (surface->base.content == CAIRO_CONTENT_COLOR)
-		pixman_format = PIXMAN_r8g8b8x8;
-	    else
-		pixman_format = PIXMAN_r8g8b8a8;
-	} else {
-	    if (surface->base.content == CAIRO_CONTENT_COLOR)
-		pixman_format = PIXMAN_x8b8g8r8;
-	    else
-		pixman_format = PIXMAN_a8b8g8r8;
+    if (_cairo_gl_surface_flavor (surface) == CAIRO_GL_FLAVOR_ES2 ||
+	_cairo_gl_surface_flavor (surface) == CAIRO_GL_FLAVOR_ES3) {
+	/* If only RGBA is supported, we must download data in a compatible
+	 * format. This means that pixman will convert the data on the CPU when
+	 * interacting with other image surfaces. For ALPHA, GLES2 does not
+	 * support GL_PACK_ROW_LENGTH anyway, and this makes sure that the
+	 * pixman image that is created has row_stride = row_width * bpp. */
+	if (surface->base.content == CAIRO_CONTENT_ALPHA || !ctx->can_read_bgra) {
+	    cairo_bool_t little_endian = _cairo_is_little_endian ();
+	    format = GL_RGBA;
+
+	    if (surface->base.content == CAIRO_CONTENT_COLOR) {
+		pixman_format = little_endian ?
+		    PIXMAN_x8b8g8r8 : PIXMAN_r8g8b8x8;
+	    } else {
+		pixman_format = little_endian ?
+		    PIXMAN_a8b8g8r8 : PIXMAN_r8g8b8a8;
+	    }
 	}
+
+	/* GLES2 only supports GL_UNSIGNED_BYTE. */
 	type = GL_UNSIGNED_BYTE;
 	cpp = 4;
     }
@@ -1063,63 +1529,65 @@ _cairo_gl_surface_map_to_image (void      *abstract_surface,
 							extents->width,
 							extents->height,
 							-1);
-    if (unlikely (image->base.status))
-	return &image->base;
-
-    if (surface->base.serial == 0)
-	return &image->base;
-
-    status = _cairo_gl_context_acquire (surface->base.device, &ctx);
-    if (unlikely (status)) {
-	cairo_surface_destroy (&image->base);
-	return _cairo_surface_create_in_error (status);
+    if (unlikely (image->base.status)) {
+	status = _cairo_gl_context_release (ctx, status);
+	return image;
     }
 
     cairo_surface_set_device_offset (&image->base, -extents->x, -extents->y);
+
+    /* If the original surface has not been modified or
+     * is clear, we can avoid downloading data. */
+    if (surface->base.is_clear || surface->base.serial == 0) {
+	status = _cairo_gl_context_release (ctx, status);
+	return image;
+    }
 
     /* This is inefficient, as we'd rather just read the thing without making
      * it the destination.  But then, this is the fallback path, so let's not
      * fall back instead.
      */
     _cairo_gl_composite_flush (ctx);
+
     _cairo_gl_context_set_destination (ctx, surface, FALSE);
 
-    invert = ! _cairo_gl_surface_is_texture (surface) &&
-	    ctx->has_mesa_pack_invert;
+    flipped = ! _cairo_gl_surface_is_texture (surface);
+    mesa_invert = flipped && ctx->has_mesa_pack_invert;
 
-    glPixelStorei (GL_PACK_ALIGNMENT, 4);
-    if (ctx->gl_flavor == CAIRO_GL_FLAVOR_DESKTOP)
-	glPixelStorei (GL_PACK_ROW_LENGTH, image->stride / cpp);
-    if (invert)
-	glPixelStorei (GL_PACK_INVERT_MESA, 1);
+    ctx->dispatch.PixelStorei (GL_PACK_ALIGNMENT, 4);
+    if (ctx->gl_flavor == CAIRO_GL_FLAVOR_DESKTOP ||
+	ctx->gl_flavor == CAIRO_GL_FLAVOR_ES3)
+	ctx->dispatch.PixelStorei (GL_PACK_ROW_LENGTH, image->stride / cpp);
+    if (mesa_invert)
+	ctx->dispatch.PixelStorei (GL_PACK_INVERT_MESA, 1);
 
     y = extents->y;
-    if (! _cairo_gl_surface_is_texture (surface))
+    if (flipped)
 	y = surface->height - extents->y - extents->height;
 
-    glReadPixels (extents->x, y,
+    ctx->dispatch.ReadPixels (extents->x, y,
 		  extents->width, extents->height,
 		  format, type, image->data);
-    if (invert)
-	glPixelStorei (GL_PACK_INVERT_MESA, 0);
+    if (mesa_invert)
+	ctx->dispatch.PixelStorei (GL_PACK_INVERT_MESA, 0);
 
     status = _cairo_gl_context_release (ctx, status);
     if (unlikely (status)) {
 	cairo_surface_destroy (&image->base);
-	return _cairo_surface_create_in_error (status);
+	return _cairo_image_surface_create_in_error (status);
     }
 
     /* We must invert the image manualy if we lack GL_MESA_pack_invert */
-    if (! ctx->has_mesa_pack_invert && ! _cairo_gl_surface_is_texture (surface)) {
+    if (flipped && ! mesa_invert) {
 	uint8_t stack[1024], *row = stack;
 	uint8_t *top = image->data;
 	uint8_t *bot = image->data + (image->height-1)*image->stride;
 
-	if (image->stride > sizeof(stack)) {
+	if (image->stride > (int)sizeof(stack)) {
 	    row = malloc (image->stride);
 	    if (unlikely (row == NULL)) {
 		cairo_surface_destroy (&image->base);
-		return _cairo_surface_create_in_error (_cairo_error (CAIRO_STATUS_NO_MEMORY));
+		return _cairo_image_surface_create_in_error (_cairo_error (CAIRO_STATUS_NO_MEMORY));
 	    }
 	}
 
@@ -1136,6 +1604,7 @@ _cairo_gl_surface_map_to_image (void      *abstract_surface,
     }
 
     image->base.is_clear = FALSE;
+
     return image;
 }
 
@@ -1185,11 +1654,19 @@ static cairo_int_status_t
 _cairo_gl_surface_unmap_image (void		      *abstract_surface,
 			       cairo_image_surface_t *image)
 {
-    return _cairo_gl_surface_draw_image (abstract_surface, image,
-					 0, 0,
-					 image->width, image->height,
-					 image->base.device_transform_inverse.x0,
-					 image->base.device_transform_inverse.y0);
+    cairo_int_status_t status;
+
+    status = _cairo_gl_surface_draw_image (abstract_surface, image,
+					   0, 0,
+					   image->width, image->height,
+					   image->base.device_transform_inverse.x0,
+					   image->base.device_transform_inverse.y0,
+					   TRUE);
+
+    cairo_surface_finish (&image->base);
+    cairo_surface_destroy (&image->base);
+
+    return status;
 }
 
 static cairo_bool_t
@@ -1207,24 +1684,67 @@ _cairo_gl_surface_get_extents (void		     *abstract_surface,
 }
 
 static cairo_status_t
-_cairo_gl_surface_flush (void *abstract_surface)
+_cairo_gl_surface_flush (void *abstract_surface, unsigned flags)
 {
     cairo_gl_surface_t *surface = abstract_surface;
     cairo_status_t status;
     cairo_gl_context_t *ctx;
 
+    if (flags)
+	return CAIRO_STATUS_SUCCESS;
+
     status = _cairo_gl_context_acquire (surface->base.device, &ctx);
     if (unlikely (status))
         return status;
 
-    if ((ctx->operands[CAIRO_GL_TEX_SOURCE].type == CAIRO_GL_OPERAND_TEXTURE &&
+    if (((ctx->operands[CAIRO_GL_TEX_SOURCE].type == CAIRO_GL_OPERAND_TEXTURE ||
+	  ctx->operands[CAIRO_GL_TEX_SOURCE].type == CAIRO_GL_OPERAND_GAUSSIAN) &&
          ctx->operands[CAIRO_GL_TEX_SOURCE].texture.surface == surface) ||
-        (ctx->operands[CAIRO_GL_TEX_MASK].type == CAIRO_GL_OPERAND_TEXTURE &&
+        ((ctx->operands[CAIRO_GL_TEX_MASK].type == CAIRO_GL_OPERAND_TEXTURE ||
+	  ctx->operands[CAIRO_GL_TEX_MASK].type == CAIRO_GL_OPERAND_GAUSSIAN) &&
          ctx->operands[CAIRO_GL_TEX_MASK].texture.surface == surface) ||
         (ctx->current_target == surface))
       _cairo_gl_composite_flush (ctx);
 
+    status = _cairo_gl_surface_resolve_multisampling (surface);
+
+    if (ctx->msaa_type != CAIRO_GL_NONE_MULTISAMPLE_TO_TEXTURE)
+        ctx->dispatch.Flush ();
+
     return _cairo_gl_context_release (ctx, status);
+}
+
+cairo_int_status_t
+_cairo_gl_surface_resolve_multisampling (cairo_gl_surface_t *surface)
+{
+    cairo_gl_context_t *ctx;
+    cairo_int_status_t status;
+
+    if (surface->base.device == NULL)
+	return CAIRO_INT_STATUS_SUCCESS;
+
+    if (! surface->content_cleared) {
+	/* GLES surfaces do not need explicit resolution. */
+	if (! surface->msaa_active)
+	    return CAIRO_INT_STATUS_SUCCESS;
+	else if (((cairo_gl_context_t *) surface->base.device)->gl_flavor == CAIRO_GL_FLAVOR_ES2 &&
+		 !((cairo_gl_context_t *) surface->base.device)->has_angle_multisampling)
+	    return CAIRO_INT_STATUS_SUCCESS;
+	else if (! _cairo_gl_surface_is_texture (surface))
+	    return CAIRO_INT_STATUS_SUCCESS;
+    }
+
+    status = _cairo_gl_context_acquire (surface->base.device, &ctx);
+    if (unlikely (status))
+	return status;
+
+    _cairo_gl_context_set_destination (ctx, surface, FALSE);
+
+    status = _cairo_gl_context_release (ctx, status);
+
+    surface->content_cleared = FALSE;
+
+    return status;
 }
 
 static const cairo_compositor_t *
@@ -1242,23 +1762,59 @@ _cairo_gl_surface_paint (void			*surface,
 {
     cairo_int_status_t status;
     cairo_gl_surface_t *dst = (cairo_gl_surface_t *)surface;
+    cairo_gl_context_t *ctx = (cairo_gl_context_t *)dst->base.device;
 
+    status = cairo_device_acquire (dst->base.device);
+    if (unlikely (status))
+	return status;
+
+    status = _cairo_surface_shadow_paint (surface, op, source, clip,
+					  &source->shadow);
+    ctx->source_scratch_in_use = FALSE;
+    if (unlikely (status)) {
+	cairo_device_release (dst->base.device);
+	return status;
+    }
+
+    if (source->shadow.draw_shadow_only) {
+	if (status == CAIRO_INT_STATUS_SUCCESS) {
+	    dst->content_changed = TRUE;
+	    dst->content_synced = FALSE;
+	}
+
+	ctx->source_scratch_in_use = FALSE;
+	cairo_device_release (dst->base.device);
+	return status;
+    }
+
+#if 0 // Currently glClear does not get flushed to GPU so do not use this fast path for the time being
     /* simplify the common case of clearing the surface */
     if (clip == NULL) {
-        if (op == CAIRO_OPERATOR_CLEAR)
-            return _cairo_gl_surface_clear (surface, CAIRO_COLOR_TRANSPARENT);
-       else if (source->type == CAIRO_PATTERN_TYPE_SOLID &&
+        if (op == CAIRO_OPERATOR_CLEAR) {
+            status = _cairo_gl_surface_clear (surface, CAIRO_COLOR_TRANSPARENT);
+	    cairo_device_release (dst->base.device);
+	    return status;
+	}
+	else if (source->type == CAIRO_PATTERN_TYPE_SOLID &&
                 (op == CAIRO_OPERATOR_SOURCE ||
                  (op == CAIRO_OPERATOR_OVER && _cairo_pattern_is_opaque_solid (source)))) {
-            return _cairo_gl_surface_clear (surface,
+            status = _cairo_gl_surface_clear (surface,
                                             &((cairo_solid_pattern_t *) source)->color);
+	    cairo_device_release (dst->base.device);
+	    return status;
         }
     }
+#endif
 
     status = _cairo_compositor_paint (get_compositor (surface), surface,
 				      op, source, clip);
-    if (likely (status))
+    if (status == CAIRO_INT_STATUS_SUCCESS) {
 	dst->content_changed = TRUE;
+	dst->content_synced = FALSE;
+    }
+
+    ctx->source_scratch_in_use = FALSE;
+    cairo_device_release (dst->base.device);
     return status;
 }
 
@@ -1271,11 +1827,51 @@ _cairo_gl_surface_mask (void			 *surface,
 {
     cairo_int_status_t status;
     cairo_gl_surface_t *dst = (cairo_gl_surface_t *) surface;
+    cairo_gl_context_t *ctx = (cairo_gl_context_t *)dst->base.device;
+
+    status = cairo_device_acquire (dst->base.device);
+    if (unlikely (status))
+	return status;
+
+    status = _cairo_surface_shadow_mask (surface, op, source, mask, clip,
+					  &source->shadow);
+    ctx->source_scratch_in_use = FALSE;
+    if (unlikely (status)) {
+	cairo_device_release (dst->base.device);
+	return status;
+    }
+
+    if (source->shadow.draw_shadow_only) {
+	if (status == CAIRO_INT_STATUS_SUCCESS) {
+	    dst->content_changed = TRUE;
+	    dst->content_synced = FALSE;
+	}
+
+	ctx->source_scratch_in_use = FALSE;
+	cairo_device_release (dst->base.device);
+	return status;
+    }
 
     status = _cairo_compositor_mask (get_compositor (surface), surface,
 				     op, source, mask, clip);
-    if (likely (status))
+    if (status == CAIRO_INT_STATUS_SUCCESS) {
 	dst->content_changed = TRUE;
+	dst->content_synced = FALSE;
+
+	ctx->source_scratch_in_use = FALSE;
+	cairo_device_release (dst->base.device);
+	return status;
+    }
+
+    status = _cairo_compositor_mask (get_compositor (surface), surface,
+				     op, source, mask, clip);
+    if (status == CAIRO_INT_STATUS_SUCCESS) {
+	dst->content_changed = TRUE;
+	dst->content_synced = FALSE;
+    }
+
+    ctx->source_scratch_in_use = FALSE;
+    cairo_device_release (dst->base.device);
     return status;
 }
 
@@ -1293,13 +1889,58 @@ _cairo_gl_surface_stroke (void			        *surface,
 {
     cairo_int_status_t status;
     cairo_gl_surface_t *dst = (cairo_gl_surface_t *)surface;
+    cairo_gl_context_t *ctx = (cairo_gl_context_t *)dst->base.device;
+    cairo_shadow_type_t shadow_type = source->shadow.type;
 
-    status = _cairo_compositor_stroke (get_compositor (surface), surface,
-				       op, source, path, style,
-				       ctm, ctm_inverse, tolerance,
-				       antialias, clip);
-    if (likely (status))
-	dst->content_changed = TRUE;
+    status = cairo_device_acquire (dst->base.device);
+    if (unlikely (status))
+	return status;
+
+    if (shadow_type != CAIRO_SHADOW_INSET)
+	status = _cairo_surface_shadow_stroke (surface, op, source, path,
+					       style, ctm, ctm_inverse,
+					       tolerance, antialias,
+					       clip, &source->shadow);
+
+    ctx->source_scratch_in_use = FALSE;
+    if (unlikely (status)) {
+ 	cairo_device_release (dst->base.device);
+	return status;
+    }
+
+    dst->content_changed = TRUE;
+    dst->content_synced = FALSE;
+
+    if (shadow_type == CAIRO_SHADOW_DROP &&
+	source->shadow.draw_shadow_only) {
+	ctx->source_scratch_in_use = FALSE;
+	cairo_device_release (dst->base.device);
+	return status;
+    }
+
+    ctx->source_scratch_in_use = FALSE;
+
+    if (! source->shadow.draw_shadow_only)
+	status = _cairo_compositor_stroke (get_compositor (surface), surface,
+				           op, source, path, style,
+				           ctm, ctm_inverse, tolerance,
+				           antialias, clip);
+    if (unlikely (status)) {
+ 	ctx->source_scratch_in_use = FALSE;
+  	cairo_device_release (dst->base.device);
+	return status;
+    }
+
+    ctx->source_scratch_in_use = FALSE;
+
+    if (shadow_type == CAIRO_SHADOW_INSET)
+	status = _cairo_surface_shadow_stroke (surface, op, source, path,
+					       style, ctm, ctm_inverse,
+					       tolerance, antialias,
+					       clip, &source->shadow);
+
+    ctx->source_scratch_in_use = FALSE;
+    cairo_device_release (dst->base.device);
     return status;
 }
 
@@ -1313,15 +1954,69 @@ _cairo_gl_surface_fill (void			*surface,
                         cairo_antialias_t	 antialias,
                         const cairo_clip_t	*clip)
 {
-    cairo_int_status_t status;
+    cairo_status_t status;
     cairo_gl_surface_t *dst = (cairo_gl_surface_t *)surface;
+    cairo_gl_context_t *ctx = (cairo_gl_context_t *)dst->base.device;
+    cairo_shadow_type_t shadow_type = source->shadow.type;
 
-    status = _cairo_compositor_fill (get_compositor (surface), surface,
-				     op, source, path,
-				     fill_rule, tolerance, antialias,
-				     clip);
-    if (likely (status))
-	dst->content_changed = TRUE;
+    status = cairo_device_acquire (dst->base.device);
+    if (unlikely (status))
+	return status;
+
+    if (shadow_type != CAIRO_SHADOW_INSET)
+	status = _cairo_surface_shadow_fill (surface, op, source, path,
+					     fill_rule, tolerance, antialias,
+					     clip, &source->shadow);
+
+    ctx->source_scratch_in_use = FALSE;
+    if (unlikely (status)) {
+ 	cairo_device_release (dst->base.device);
+	return status;
+    }
+
+    dst->content_changed = TRUE;
+    dst->content_synced = FALSE;
+
+    if (shadow_type == CAIRO_SHADOW_DROP &&
+	source->shadow.draw_shadow_only) {
+	ctx->source_scratch_in_use = FALSE;
+	cairo_device_release (dst->base.device);
+	return status;
+    }
+
+    ctx->source_scratch_in_use = FALSE;
+
+    if (! source->shadow.draw_shadow_only) {
+	if (! source->shadow.path_is_fill_with_spread ||
+	    source->shadow.type != CAIRO_SHADOW_INSET)
+	    status = _cairo_compositor_fill (get_compositor (surface),
+					     surface,
+					     op, source, path,
+					     fill_rule, tolerance,
+					     antialias,
+					     clip);
+	else
+	    status = _cairo_compositor_paint (get_compositor (surface),
+					      surface, op, source,
+					      clip);
+    }
+
+    if (unlikely (status)) {
+ 	ctx->source_scratch_in_use = FALSE;
+  	cairo_device_release (dst->base.device);
+	return status;
+    }
+
+    ctx->source_scratch_in_use = FALSE;
+
+    if (shadow_type == CAIRO_SHADOW_INSET)
+	status = _cairo_surface_shadow_fill (surface, op, source, path,
+					     fill_rule, tolerance, antialias,
+					     clip, &source->shadow);
+
+    ctx->source_scratch_in_use = FALSE;
+    cairo_device_release (dst->base.device);
+
     return status;
 }
 
@@ -1336,12 +2031,58 @@ _cairo_gl_surface_glyphs (void			*surface,
 {
     cairo_int_status_t status;
     cairo_gl_surface_t *dst = (cairo_gl_surface_t *)surface;
+    cairo_gl_context_t *ctx = (cairo_gl_context_t *)dst->base.device;
+    cairo_shadow_type_t shadow_type = source->shadow.type;
 
-    status = _cairo_compositor_glyphs (get_compositor (surface), surface,
-				       op, source, glyphs, num_glyphs,
-				       font, clip);
-    if (likely (status))
-	dst->content_changed = TRUE;
+    status = cairo_device_acquire (dst->base.device);
+    if (unlikely (status))
+	return status;
+
+    if (shadow_type != CAIRO_SHADOW_INSET)
+	status = _cairo_surface_shadow_glyphs (surface, op, source,
+					       font,
+					       glyphs, num_glyphs,
+					       clip, &source->shadow);
+
+    ctx->source_scratch_in_use = FALSE;
+    if (unlikely (status)) {
+ 	cairo_device_release (dst->base.device);
+	return status;
+    }
+
+    dst->content_changed = TRUE;
+    dst->content_synced = FALSE;
+
+    if (shadow_type == CAIRO_SHADOW_DROP &&
+	source->shadow.draw_shadow_only) {
+	ctx->source_scratch_in_use = FALSE;
+	cairo_device_release (dst->base.device);
+	return status;
+    }
+
+    ctx->source_scratch_in_use = FALSE;
+
+    if (! source->shadow.draw_shadow_only)
+	status = _cairo_compositor_glyphs (get_compositor (surface), surface,
+				           op, source, glyphs, num_glyphs,
+				           font, clip);
+
+    if (unlikely (status)) {
+ 	ctx->source_scratch_in_use = FALSE;
+  	cairo_device_release (dst->base.device);
+	return status;
+    }
+
+    ctx->source_scratch_in_use = FALSE;
+
+    if (shadow_type == CAIRO_SHADOW_INSET)
+	status = _cairo_surface_shadow_glyphs (surface, op, source,
+					       font,
+					       glyphs, num_glyphs,
+					       clip, &source->shadow);
+
+    ctx->source_scratch_in_use = FALSE;
+    cairo_device_release (dst->base.device);
     return status;
 }
 
@@ -1375,6 +2116,13 @@ static const cairo_surface_backend_t _cairo_gl_surface_backend = {
     _cairo_gl_surface_fill,
     NULL, /* fill/stroke */
     _cairo_gl_surface_glyphs,
+    NULL, /* has_text_glyphs */
+    NULL, /* show_text_glyphs */
+    NULL, /* get_supported_mime_types */
+    _cairo_gl_surface_shadow_surface,
+    _cairo_gl_surface_glyph_shadow_surface,
+    _cairo_gl_surface_shadow_mask_surface,
+    _cairo_gl_surface_glyph_shadow_mask_surface,
 };
 
 cairo_status_t
@@ -1392,4 +2140,3 @@ cairo_gl_surface_set_binding_texture (cairo_surface_t *abstract_surface,
 
     return CAIRO_STATUS_SUCCESS;
 }
-

@@ -73,6 +73,7 @@ _cairo_font_options_init_default (cairo_font_options_t *options)
     options->hint_style = CAIRO_HINT_STYLE_DEFAULT;
     options->hint_metrics = CAIRO_HINT_METRICS_DEFAULT;
     options->round_glyph_positions = CAIRO_ROUND_GLYPH_POS_DEFAULT;
+	options->color = CAIRO_FONT_COLOR_DEFAULT;
 }
 
 void
@@ -85,6 +86,7 @@ _cairo_font_options_init_copy (cairo_font_options_t		*options,
     options->hint_style = other->hint_style;
     options->hint_metrics = other->hint_metrics;
     options->round_glyph_positions = other->round_glyph_positions;
+	options->color = other->color;
 }
 
 /**
@@ -226,6 +228,8 @@ cairo_font_options_merge (cairo_font_options_t       *options,
 	options->hint_metrics = other->hint_metrics;
     if (other->round_glyph_positions != CAIRO_ROUND_GLYPH_POS_DEFAULT)
 	options->round_glyph_positions = other->round_glyph_positions;
+	if (other->color != CAIRO_FONT_COLOR_DEFAULT)
+	options->color = other->color;
 }
 slim_hidden_def (cairo_font_options_merge);
 
@@ -259,7 +263,8 @@ cairo_font_options_equal (const cairo_font_options_t *options,
 	    options->lcd_filter == other->lcd_filter &&
 	    options->hint_style == other->hint_style &&
 	    options->hint_metrics == other->hint_metrics &&
-	    options->round_glyph_positions == other->round_glyph_positions);
+	    options->round_glyph_positions == other->round_glyph_positions &&
+		options->color == other->color);
 }
 slim_hidden_def (cairo_font_options_equal);
 
@@ -287,7 +292,8 @@ cairo_font_options_hash (const cairo_font_options_t *options)
 	    (options->subpixel_order << 4) |
 	    (options->lcd_filter << 8) |
 	    (options->hint_style << 12) |
-	    (options->hint_metrics << 16));
+	    (options->hint_metrics << 16) |
+		(options->color << 20));
 }
 slim_hidden_def (cairo_font_options_hash);
 
@@ -532,4 +538,23 @@ cairo_font_options_get_hint_metrics (const cairo_font_options_t *options)
 	return CAIRO_HINT_METRICS_DEFAULT;
 
     return options->hint_metrics;
+}
+void
+cairo_font_options_set_font_color (cairo_font_options_t *options,
+								cairo_font_color_t  font_color)
+{
+	if (cairo_font_options_status (options))
+	return;
+
+	options->color = font_color;
+}
+slim_hidden_def (cairo_font_options_set_font_color);
+
+cairo_font_color_t
+cairo_font_options_get_font_color (const cairo_font_options_t *options)
+{
+	if (cairo_font_options_status ((cairo_font_options_t *) options))
+	return CAIRO_FONT_COLOR_DEFAULT;
+
+	return options->color;
 }

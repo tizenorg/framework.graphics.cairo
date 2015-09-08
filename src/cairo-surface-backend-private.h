@@ -63,7 +63,7 @@ struct _cairo_surface_backend {
 				 int			 width,
 				 int			 height);
 
-    cairo_surface_t *
+    cairo_image_surface_t *
     (*map_to_image)		(void			*surface,
 				 const cairo_rectangle_int_t  *extents);
     cairo_int_status_t
@@ -110,7 +110,8 @@ struct _cairo_surface_backend {
 				 cairo_font_options_t  *options);
 
     cairo_warn cairo_status_t
-    (*flush)                    (void                  *surface);
+    (*flush)                    (void                  *surface,
+				 unsigned               flags);
 
     cairo_warn cairo_status_t
     (*mark_dirty_rectangle)     (void                  *surface,
@@ -199,6 +200,47 @@ struct _cairo_surface_backend {
 
     const char **
     (*get_supported_mime_types)	(void			    *surface);
+
+    cairo_surface_t *
+    (*get_shadow_surface) 	(void	*surface,
+				 const cairo_bool_t has_blur,
+				 int	 width,
+				 int	 height,
+				 int    *width_out,
+				 int    *height_out);
+
+    cairo_surface_t *
+    (*get_glyph_shadow_surface)  (void		*surface,
+				  int		 width,
+				  int		 height,
+				  cairo_bool_t   for_source);
+
+    cairo_surface_t *
+    (*get_shadow_mask_surface) 	(void	*surface,
+				 int	 width,
+				 int	 height,
+				 unsigned index);
+
+    cairo_surface_t *
+    (*get_glyph_shadow_mask_surface)  (void		*surface,
+				       int		 width,
+				       int		 height,
+				       unsigned 	 index);
+
+    cairo_status_t
+    (*shadow_cache_acquire) 	    (void	*surface);
+
+    void
+    (*shadow_cache_release)	    (void	*surface);
+
+    cairo_list_t *
+    (*get_shadow_cache)		    (void	*surface);
+
+    unsigned long *
+    (*get_shadow_cache_size)	    (void	*surface);
+
+    cairo_bool_t
+    (*has_shadow_cache)		    (void	*surface);
 };
 
 cairo_private cairo_status_t

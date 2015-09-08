@@ -1058,8 +1058,11 @@ _cairo_path_fixed_stroke_to_tristrip (const cairo_path_fixed_t	*path,
     if (unlikely (status))
 	return status;
 
-    if (stroker.pen.num_vertices <= 1)
+    if (stroker.pen.num_vertices <= 1) {
+	if (stroker.pen.num_vertices)
+	    _cairo_pen_fini (&stroker.pen);
 	return CAIRO_INT_STATUS_NOTHING_TO_DO;
+    }
 
     stroker.has_current_face = FALSE;
     stroker.has_first_face = FALSE;

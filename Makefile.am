@@ -16,25 +16,28 @@ EXTRA_DIST += \
 
 ACLOCAL_AMFLAGS = -I build ${ACLOCAL_FLAGS}
 
-DIST_SUBDIRS = src doc util boilerplate test perf
-SUBDIRS = src doc util
+#DIST_SUBDIRS = src doc util boilerplate test
+#SUBDIRS = src doc util
+DIST_SUBDIRS = src util boilerplate
+SUBDIRS = src util
 # libpng is required for our test programs
 if CAIRO_HAS_PNG_FUNCTIONS
-SUBDIRS += boilerplate test perf
+#SUBDIRS += boilerplate test
+SUBDIRS += boilerplate
 endif
 
 configure: cairo-version.h
 
-doc:
-	cd doc && $(MAKE) $(AM_MAKEFLAGS) $@
-test retest recheck: all
-	cd test && $(MAKE) $(AM_MAKEFLAGS) $@
-perf: all
-	cd perf && $(MAKE) $(AM_MAKEFLAGS) $@
-check-valgrind: all
-	cd test && $(MAKE) $(AM_MAKEFLAGS) check-valgrind
-	cd perf && $(MAKE) $(AM_MAKEFLAGS) check-valgrind
-.PHONY: doc test retest recheck perf check-valgrind
+#doc:
+#	cd doc && $(MAKE) $(AM_MAKEFLAGS) $@
+#test retest recheck: all
+#	cd test && $(MAKE) $(AM_MAKEFLAGS) $@
+#perf: all
+#	cd perf && $(MAKE) $(AM_MAKEFLAGS) $@
+#check-valgrind: all
+#	cd test && $(MAKE) $(AM_MAKEFLAGS) check-valgrind
+#	cd perf && $(MAKE) $(AM_MAKEFLAGS) check-valgrind
+#.PHONY: doc test retest recheck perf check-valgrind
 
 
 EXTRA_DIST += \

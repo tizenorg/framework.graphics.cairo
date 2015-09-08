@@ -40,6 +40,13 @@
 static const cairo_damage_t __cairo_damage__nil = { CAIRO_STATUS_NO_MEMORY };
 
 cairo_damage_t *
+_cairo_damage_create_in_error (cairo_status_t status)
+{
+    _cairo_error_throw (status);
+    return (cairo_damage_t *) &__cairo_damage__nil;
+}
+
+cairo_damage_t *
 _cairo_damage_create (void)
 {
     cairo_damage_t *damage;
@@ -95,7 +102,6 @@ _cairo_damage_add_boxes(cairo_damage_t *damage,
     if (damage->status)
 	return damage;
 
-
     damage->dirty += count;
 
     n = count;
@@ -128,10 +134,11 @@ _cairo_damage_add_boxes(cairo_damage_t *damage,
     chunk->count = count;
 
     damage->tail->next = chunk;
-    damage->remain = size - count;
+    damage->tail = chunk;
 
     memcpy (damage->tail->base, boxes + n,
 	    count * sizeof (cairo_box_t));
+    damage->remain = size - count;
 
     return damage;
 }

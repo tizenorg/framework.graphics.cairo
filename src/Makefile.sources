@@ -73,6 +73,7 @@ cairo_private = \
 	cairo-device-private.h \
 	cairo-error-inline.h \
 	cairo-error-private.h \
+	cairo-filters-private.h \
 	cairo-fixed-private.h \
 	cairo-fixed-type-private.h \
 	cairo-freelist-private.h \
@@ -81,12 +82,14 @@ cairo_private = \
 	cairo-fontconfig-private.h \
 	cairo-gstate-private.h \
 	cairo-hash-private.h \
+	cairo-image-filters-private.h \
 	cairo-image-info-private.h \
 	cairo-image-surface-inline.h \
 	cairo-image-surface-private.h \
 	cairo-list-inline.h \
 	cairo-list-private.h \
 	cairo-malloc-private.h \
+	cairo-mempool-private.h \
 	cairo-mutex-impl-private.h \
 	cairo-mutex-list-private.h \
 	cairo-mutex-private.h \
@@ -117,6 +120,8 @@ cairo_private = \
 	cairo-surface-observer-inline.h \
 	cairo-surface-observer-private.h \
 	cairo-surface-offset-private.h \
+	cairo-surface-scale-translate-private.h \
+	cairo-surace-shadow-private.h \
 	cairo-surface-subsurface-inline.h \
 	cairo-surface-subsurface-private.h \
 	cairo-surface-snapshot-inline.h \
@@ -129,6 +134,7 @@ cairo_private = \
 	cairo-user-font-private.h \
 	cairo-wideint-private.h \
 	cairo-wideint-type-private.h \
+	cairo-thread-local-private.h \
 	$(NULL)
 cairo_sources = \
 	cairo-analysis-surface.c \
@@ -160,6 +166,7 @@ cairo_sources = \
 	cairo-device.c \
 	cairo-error.c \
 	cairo-fallback-compositor.c \
+	cairo-filters.c \
 	cairo-fixed.c \
 	cairo-font-face.c \
 	cairo-font-face-twin.c \
@@ -171,6 +178,7 @@ cairo_sources = \
 	cairo-hash.c \
 	cairo-hull.c \
 	cairo-image-compositor.c \
+	cairo-image-filters.c \
 	cairo-image-info.c \
 	cairo-image-source.c \
 	cairo-image-surface.c \
@@ -178,6 +186,7 @@ cairo_sources = \
 	cairo-matrix.c \
 	cairo-mask-compositor.c \
 	cairo-mesh-pattern-rasterizer.c \
+	cairo-mempool.c \
 	cairo-misc.c \
 	cairo-mono-scan-converter.c \
 	cairo-mutex.c \
@@ -193,6 +202,7 @@ cairo_sources = \
 	cairo-path-stroke.c \
 	cairo-path-stroke-boxes.c \
 	cairo-path-stroke-polygon.c \
+	cairo-path-stroke-traps.c \
 	cairo-path-stroke-tristrip.c \
 	cairo-pattern.c \
 	cairo-pen.c \
@@ -218,6 +228,8 @@ cairo_sources = \
 	cairo-surface-fallback.c \
 	cairo-surface-observer.c \
 	cairo-surface-offset.c \
+	cairo-surface-scale-translate.c \
+	cairo-surface-shadow.c \
 	cairo-surface-snapshot.c \
 	cairo-surface-subsurface.c \
 	cairo-surface-wrapper.c \
@@ -311,6 +323,7 @@ cairo_xlib_sources = \
 	cairo-xlib-screen.c \
 	cairo-xlib-source.c \
 	cairo-xlib-surface.c \
+	cairo-xlib-surface-shm.c \
 	cairo-xlib-visual.c \
 	cairo-xlib-xcb-surface.c \
 	$(NULL)
@@ -327,7 +340,6 @@ cairo_xcb_sources = \
 		    cairo-xcb-screen.c \
 		    cairo-xcb-shm.c \
 		    cairo-xcb-surface.c \
-		    cairo-xcb-surface-cairo.c \
 		    cairo-xcb-surface-core.c \
 		    cairo-xcb-surface-render.c \
 		    $(NULL)
@@ -337,7 +349,8 @@ cairo_qt_cxx_sources = cairo-qt-surface.cpp
 
 cairo_quartz_headers = cairo-quartz.h
 cairo_quartz_private = cairo-quartz-private.h
-cairo_quartz_sources = cairo-quartz-surface.c
+cairo_quartz_sources = cairo-quartz-surface.c \
+		       cairo-quartz-filters.c
 
 cairo_quartz_image_headers = cairo-quartz-image.h
 cairo_quartz_image_sources = cairo-quartz-image-surface.c
@@ -389,6 +402,7 @@ cairo_gl_sources = cairo-gl-composite.c \
 		   cairo-gl-info.c \
 		   cairo-gl-operand.c \
 		   cairo-gl-shaders.c \
+		   cairo-gl-filters.c \
 		   cairo-gl-hairline-stroke.c \
 		   cairo-gl-msaa-compositor.c \
 		   cairo-gl-spans-compositor.c \
@@ -400,9 +414,43 @@ cairo_glesv2_headers = $(cairo_gl_headers)
 cairo_glesv2_private = $(cairo_gl_private)
 cairo_glesv2_sources = $(cairo_gl_sources)
 
+cairo_glesv3_headers = $(cairo_gl_headers)
+cairo_glesv3_private = $(cairo_gl_private)
+cairo_glesv3_sources = $(cairo_gl_sources)
+
+if CAIRO_HAS_EVASGL_SURFACE
+if CAIRO_HAS_GL_SURFACE
+cairo_evasgl_headers =
+cairo_evasgl_private =
+cairo_evasgl_sources =
+else
+if CAIRO_HAS_GLESV2_SURFACE
+cairo_evasgl_headers =
+cairo_evasgl_private =
+cairo_evasgl_sources =
+else
+if CAIRO_HAS_GLESV3_SURFACE
+cairo_evasgl_headers =
+cairo_evasgl_private =
+cairo_evasgl_sources =
+else
+cairo_evasgl_headers = $(cairo_gl_headers)
+cairo_evasgl_private = $(cairo_gl_private)
+cairo_evasgl_sources = $(cairo_gl_sources)
+endif
+endif
+endif
+else
+cairo_evasgl_headers =
+cairo_evasgl_private =
+cairo_evasgl_sources =
+endif
+
 cairo_egl_sources += cairo-egl-context.c
 cairo_glx_sources += cairo-glx-context.c
 cairo_wgl_sources += cairo-wgl-context.c
+cairo_evasgl_headers += cairo-evas-gl.h
+cairo_evasgl_sources += cairo-evas-gl-context.c
 
 cairo_directfb_headers = cairo-directfb.h
 cairo_directfb_sources = cairo-directfb-surface.c
@@ -463,3 +511,11 @@ cairo_cogl_sources = cairo-cogl-surface.c \
 		     cairo-cogl-gradient.c \
 		     cairo-cogl-context.c \
 		     cairo-cogl-utils.c
+
+cairo_tg_headers = cairo-tg.h
+cairo_tg_private = cairo-tg-private.h \
+		   cairo-tg-allocator-private.h \
+		   cairo-tg-journal-private.h \
+		   cairo-tg-composite-extents-private.h
+cairo_tg_sources = cairo-tg-surface.c \
+		   cairo-tg-journal.c

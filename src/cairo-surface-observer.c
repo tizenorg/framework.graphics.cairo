@@ -474,16 +474,12 @@ _cairo_surface_observer_create_similar_image (void *other,
     return NULL;
 }
 
-static cairo_surface_t *
+static cairo_image_surface_t *
 _cairo_surface_observer_map_to_image (void *abstract_surface,
 				      const cairo_rectangle_int_t *extents)
 {
     cairo_surface_observer_t *surface = abstract_surface;
-
-    if (surface->target->backend->map_to_image == NULL)
-	return NULL;
-
-    return surface->target->backend->map_to_image (surface->target, extents);
+    return _cairo_surface_map_to_image (surface->target, extents);
 }
 
 static cairo_int_status_t
@@ -491,11 +487,7 @@ _cairo_surface_observer_unmap_image (void *abstract_surface,
 				     cairo_image_surface_t *image)
 {
     cairo_surface_observer_t *surface = abstract_surface;
-
-    if (surface->target->backend->unmap_image == NULL)
-	return CAIRO_INT_STATUS_UNSUPPORTED;
-
-    return surface->target->backend->unmap_image (surface->target, image);
+    return _cairo_surface_unmap_image (surface->target, image);
 }
 
 static void
@@ -670,9 +662,9 @@ sync (cairo_surface_t *target, int x, int y)
     extents.width  = 1;
     extents.height = 1;
 
-    cairo_surface_unmap_image (target,
-			       cairo_surface_map_to_image (target,
-							   &extents));
+    _cairo_surface_unmap_image (target,
+				_cairo_surface_map_to_image (target,
+							     &extents));
 }
 
 static void
@@ -1210,14 +1202,12 @@ _cairo_surface_observer_glyphs (void			*abstract_surface,
 }
 
 static cairo_status_t
-_cairo_surface_observer_flush (void *abstract_surface)
+_cairo_surface_observer_flush (void *abstract_surface, unsigned flags)
 {
     cairo_surface_observer_t *surface = abstract_surface;
 
     do_callbacks (surface, &surface->flush_callbacks);
-
-    cairo_surface_flush (surface->target);
-    return surface->target->status;
+    return _cairo_surface_flush (surface->target, flags);
 }
 
 static cairo_status_t
@@ -1408,8 +1398,11 @@ cairo_surface_create_observer (cairo_surface_t *target,
 
     record = mode & CAIRO_SURFACE_OBSERVER_RECORD_OPERATIONS;
     device = _cairo_device_create_observer_internal (target->device, record);
-    if (unlikely (device->status))
-	return _cairo_surface_create_in_error (device->status);
+    if (unlikely (device->status)) {
+	cairo_status_t status = device->status;
+	cairo_device_destroy (device);
+	return _cairo_surface_create_in_error (status);
+    }
 
     surface = _cairo_surface_create_observer_internal (device, target);
     cairo_device_destroy (device);
@@ -1584,7 +1577,7 @@ print_array (cairo_output_stream_t *stream,
 	     const char **names,
 	     int count)
 {
-    int order[64];
+    int order[64] = {0,};
     int i, j;
 
     assert (count < ARRAY_LENGTH (order));

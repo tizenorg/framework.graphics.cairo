@@ -41,11 +41,11 @@
 #include "cairo-surface-private.h"
 
 static inline cairo_status_t
-_cairo_surface_flush (cairo_surface_t *surface)
+__cairo_surface_flush (cairo_surface_t *surface, unsigned flags)
 {
     cairo_status_t status = CAIRO_STATUS_SUCCESS;
     if (surface->backend->flush)
-	status = surface->backend->flush (surface);
+	status = surface->backend->flush (surface, flags);
     return status;
 }
 

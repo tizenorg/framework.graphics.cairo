@@ -77,7 +77,8 @@ _cairo_gl_surface_release_dest_image (void		      *abstract_surface,
     status = _cairo_gl_surface_draw_image (abstract_surface, image,
 					   0, 0,
 					   image->width, image->height,
-					   image_rect->x, image_rect->y);
+					   image_rect->x, image_rect->y,
+					   TRUE);
     /* as we created the image, its format should be directly applicable */
     assert (status == CAIRO_STATUS_SUCCESS);
 
@@ -126,7 +127,7 @@ _cairo_gl_surface_clone_similar (void		     *abstract_surface,
 	status = _cairo_gl_surface_draw_image (clone, image_src,
 					       src_x, src_y,
 					       width, height,
-					       0, 0);
+					       0, 0, TRUE);
 	if (status) {
 	    cairo_surface_destroy (&clone->base);
 	    return status;
@@ -236,7 +237,7 @@ _cairo_gl_surface_composite (cairo_operator_t		  op,
             status = _cairo_gl_surface_draw_image (dst, image,
                                                    dx, dy,
                                                    width, height,
-                                                   dst_x, dst_y);
+                                                   dst_x, dst_y, TRUE);
             if (status != CAIRO_INT_STATUS_UNSUPPORTED)
                 return status;
         }
@@ -251,8 +252,7 @@ _cairo_gl_surface_composite (cairo_operator_t		  op,
     status = _cairo_gl_composite_set_source (&setup, src,
                                              src_x, src_y,
                                              dst_x, dst_y,
-                                             width, height,
-                                             FALSE);
+                                             width, height);
     if (unlikely (status))
         goto CLEANUP;
 
@@ -369,8 +369,7 @@ _cairo_gl_surface_fill_rectangles (void			   *abstract_dst,
     status = _cairo_gl_composite_set_source (&setup, &solid.base,
                                              0, 0,
                                              0, 0,
-                                             0, 0,
-                                             FALSE);
+                                             0, 0);
     if (unlikely (status))
         goto CLEANUP;
 
@@ -582,8 +581,7 @@ _cairo_gl_surface_create_span_renderer (cairo_operator_t	 op,
     status = _cairo_gl_composite_set_source (&renderer->setup, src,
                                              extents->x, extents->y,
                                              extents->x, extents->y,
-                                             extents->width, extents->height,
-                                             FALSE);
+                                             extents->width, extents->height);
     if (unlikely (status))
         goto FAIL;
 

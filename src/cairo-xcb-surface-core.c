@@ -176,6 +176,7 @@ _cairo_xcb_shm_image_create_shm (cairo_xcb_connection_t *connection,
 							    stride);
     status = image->status;
     if (unlikely (status)) {
+	cairo_surface_destroy (image);
 	_cairo_xcb_shm_info_destroy (shm_info);
 	return status;
     }
@@ -231,8 +232,10 @@ _cairo_xcb_shm_image_create (cairo_xcb_connection_t *connection,
 								width, height,
 								0);
 	status = image->status;
-	if (unlikely (status))
+	if (unlikely (status)) {
+	    cairo_surface_destroy (image);
 	    return status;
+        }
 
 	*image_out = (cairo_image_surface_t *) image;
 	*shm_info_out = shm_info;

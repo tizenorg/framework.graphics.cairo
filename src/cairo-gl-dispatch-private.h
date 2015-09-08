@@ -47,17 +47,65 @@ typedef struct _cairo_gl_dispatch_entry {
     size_t offset;
 } cairo_gl_dispatch_entry_t;
 
+#define DISPATCH_ENTRY_CORE(name) { { "gl"#name, "gl"#name"", "gl"#name }, \
+				   offsetof(cairo_gl_dispatch_t, name) }
+
 #define DISPATCH_ENTRY_ARB(name) { { "gl"#name, "gl"#name"ARB", "gl"#name }, \
 				   offsetof(cairo_gl_dispatch_t, name) }
 #define DISPATCH_ENTRY_EXT(name) { { "gl"#name, "gl"#name"EXT", "gl"#name }, \
 				   offsetof(cairo_gl_dispatch_t, name) }
 #define DISPATCH_ENTRY_ARB_OES(name) { { "gl"#name, "gl"#name"ARB", "gl"#name"OES" }, \
 				       offsetof(cairo_gl_dispatch_t, name) }
-#define DISPATCH_ENTRY_EXT_EXT(name) { { "gl"#name, "gl"#name"EXT", "gl"#name"EXT" }, \
+#define DISPATCH_ENTRY_ES_ANGLE_EXT_IMG(name) { { "gl"#name"ANGLE", "gl"#name"EXT", "gl"#name"IMG" }, \
+				       offsetof(cairo_gl_dispatch_t, name) }
+#define DISPATCH_ENTRY_ANGLE_IMG(name) { { "gl"#name, "gl"#name"ANGLE", "gl"#name"IMG" }, \
+				       offsetof(cairo_gl_dispatch_t, name) }
+#define DISPATCH_ENTRY_EXT_IMG(name) { { "gl"#name, "gl"#name"EXT", "gl"#name"IMG" }, \
 				       offsetof(cairo_gl_dispatch_t, name) }
 #define DISPATCH_ENTRY_CUSTOM(name, name2) { { "gl"#name, "gl"#name2, "gl"#name }, \
 			                     offsetof(cairo_gl_dispatch_t, name)}
+#define DISPATCH_ENTRY_EXT_ANGLE(name) { { "gl"#name, "gl"#name"EXT", "gl"#name"ANGLE" }, \
+				       offsetof(cairo_gl_dispatch_t, name) }
 #define DISPATCH_ENTRY_LAST { { NULL, NULL, NULL }, 0 }
+
+cairo_private cairo_gl_dispatch_entry_t dispatch_core_entries[] = {
+    DISPATCH_ENTRY_CORE	(ActiveTexture),
+    DISPATCH_ENTRY_CORE	(BindTexture),
+    DISPATCH_ENTRY_CORE	(BlendFunc),
+    DISPATCH_ENTRY_CORE	(BlendFuncSeparate),
+    DISPATCH_ENTRY_CORE	(Clear),
+    DISPATCH_ENTRY_CORE	(ClearColor),
+    DISPATCH_ENTRY_CORE	(ClearStencil),
+    DISPATCH_ENTRY_CORE	(ColorMask),
+    DISPATCH_ENTRY_CORE	(DeleteTextures),
+    DISPATCH_ENTRY_CORE	(Disable),
+    DISPATCH_ENTRY_CORE	(DrawArrays),
+    DISPATCH_ENTRY_CORE	(DrawElements),
+    DISPATCH_ENTRY_CORE	(Enable),
+    DISPATCH_ENTRY_CORE	(Flush),
+    DISPATCH_ENTRY_CORE	(GenTextures),
+    DISPATCH_ENTRY_CORE	(GetBooleanv),
+    DISPATCH_ENTRY_CORE	(GetError),
+    DISPATCH_ENTRY_CORE	(GetFloatv),
+    DISPATCH_ENTRY_CORE	(GetIntegerv),
+    DISPATCH_ENTRY_CORE	(GetString),
+    DISPATCH_ENTRY_CORE	(PixelStorei),
+    DISPATCH_ENTRY_CORE	(ReadPixels),
+    DISPATCH_ENTRY_CORE	(Scissor),
+    DISPATCH_ENTRY_CORE	(StencilFunc),
+    DISPATCH_ENTRY_CORE	(StencilMask),
+    DISPATCH_ENTRY_CORE	(StencilOp),
+    DISPATCH_ENTRY_CORE	(TexSubImage2D),
+    DISPATCH_ENTRY_CORE	(TexImage2D),
+    DISPATCH_ENTRY_CORE	(TexParameteri),
+#if defined(CAIRO_HAS_GL_SURFACE) || defined(CAIRO_HAS_EVASGL_SURFACE)
+    DISPATCH_ENTRY_CORE	(DrawBuffer),
+    DISPATCH_ENTRY_CORE	(ReadBuffer),
+#endif
+    DISPATCH_ENTRY_CORE	(DepthMask),
+    DISPATCH_ENTRY_CORE	(Viewport),
+    DISPATCH_ENTRY_LAST
+};
 
 cairo_private cairo_gl_dispatch_entry_t dispatch_buffers_entries[] = {
     DISPATCH_ENTRY_ARB     (GenBuffers),
@@ -92,6 +140,7 @@ cairo_private cairo_gl_dispatch_entry_t dispatch_shaders_entries[] = {
     DISPATCH_ENTRY_ARB (Uniform2f),
     DISPATCH_ENTRY_ARB (Uniform3f),
     DISPATCH_ENTRY_ARB (Uniform4f),
+    DISPATCH_ENTRY_ARB (Uniform1fv),
     DISPATCH_ENTRY_ARB (UniformMatrix3fv),
     DISPATCH_ENTRY_ARB (UniformMatrix4fv),
     DISPATCH_ENTRY_ARB (Uniform1i),
@@ -116,9 +165,27 @@ cairo_private cairo_gl_dispatch_entry_t dispatch_fbo_entries[] = {
     DISPATCH_ENTRY_EXT (RenderbufferStorage),
     DISPATCH_ENTRY_EXT (FramebufferRenderbuffer),
     DISPATCH_ENTRY_EXT (DeleteRenderbuffers),
-    DISPATCH_ENTRY_EXT (BlitFramebuffer),
-    DISPATCH_ENTRY_EXT_EXT (RenderbufferStorageMultisample),
-    DISPATCH_ENTRY_EXT_EXT (FramebufferTexture2DMultisample),
+    DISPATCH_ENTRY_LAST
+};
+
+cairo_private cairo_gl_dispatch_entry_t dispatch_multisampling_entries[] = {
+#if CAIRO_HAS_GLESV2_SURFACE
+    DISPATCH_ENTRY_ES_ANGLE_EXT_IMG (BlitFramebuffer),
+    DISPATCH_ENTRY_ES_ANGLE_EXT_IMG (RenderbufferStorageMultisample),
+    DISPATCH_ENTRY_ES_ANGLE_EXT_IMG (FramebufferTexture2DMultisample),
+#elif CAIRO_HAS_EVASGL_SURFACE
+    DISPATCH_ENTRY_ES_ANGLE_EXT_IMG (BlitFramebuffer),
+    DISPATCH_ENTRY_ES_ANGLE_EXT_IMG (RenderbufferStorageMultisample),
+    DISPATCH_ENTRY_ES_ANGLE_EXT_IMG (FramebufferTexture2DMultisample),
+
+    DISPATCH_ENTRY_EXT_IMG (BlitFramebuffer),
+    DISPATCH_ENTRY_EXT_IMG (RenderbufferStorageMultisample),
+    DISPATCH_ENTRY_EXT_IMG (FramebufferTexture2DMultisample),
+#else
+    DISPATCH_ENTRY_EXT_IMG (BlitFramebuffer),
+    DISPATCH_ENTRY_EXT_IMG (RenderbufferStorageMultisample),
+    DISPATCH_ENTRY_EXT_IMG (FramebufferTexture2DMultisample),
+#endif
     DISPATCH_ENTRY_LAST
 };
 

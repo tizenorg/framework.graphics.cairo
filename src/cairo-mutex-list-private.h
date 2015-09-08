@@ -34,6 +34,7 @@
 #ifndef CAIRO_FEATURES_H
 /* This block is to just make this header file standalone */
 #define CAIRO_MUTEX_DECLARE(mutex)
+#define CAIRO_RECURSIVE_MUTEX_DECLARE(mutex)
 #endif
 
 CAIRO_MUTEX_DECLARE (_cairo_pattern_solid_surface_cache_lock)
@@ -45,6 +46,11 @@ CAIRO_MUTEX_DECLARE (_cairo_intern_string_mutex)
 CAIRO_MUTEX_DECLARE (_cairo_scaled_font_map_mutex)
 CAIRO_MUTEX_DECLARE (_cairo_scaled_glyph_page_cache_mutex)
 CAIRO_MUTEX_DECLARE (_cairo_scaled_font_error_mutex)
+CAIRO_MUTEX_DECLARE (_cairo_glyph_cache_mutex)
+
+#if CAIRO_HAS_TG_SURFACE
+CAIRO_RECURSIVE_MUTEX_DECLARE(_cairo_tg_scaled_glyph_mutex)
+#endif
 
 #if CAIRO_HAS_FT_FONT
 CAIRO_MUTEX_DECLARE (_cairo_ft_unscaled_font_map_mutex)
