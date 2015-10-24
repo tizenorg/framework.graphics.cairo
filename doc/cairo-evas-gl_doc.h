@@ -46,6 +46,7 @@
  * In Tizen, Cairo provides gl backend in order to do hardware-accelerated rendering.
  * Since the EGL is not public supported in Tizen, Cairo Evas_GL has been provided to user interfaces instead to allow indirect access to EGL layer.
  *
+ *
  * Features	:\n
  *	- Support a new cairo_device structure for interface to the underlying GL or EvasGL.\n
  *	- Support a new cairo_surface structure for representing GL or Evas_GL_Surface object that cairo can render to.\n

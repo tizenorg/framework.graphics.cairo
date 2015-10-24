@@ -3556,6 +3556,9 @@ _cairo_script_surface_show_text_glyphs (void			    *abstract_surface,
 
 BAIL:
     inactive (surface);
+    if (base85_stream != NULL)
+	status = _cairo_output_stream_destroy (base85_stream);
+
     return status;
 }
 

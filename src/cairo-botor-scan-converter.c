@@ -199,8 +199,8 @@ floored_muldivrem(int x, int a, int b)
 {
     struct quorem qr;
     long long xa = (long long)x*a;
-    qr.quo = xa/b;
-    qr.rem = xa%b;
+    qr.quo = (int32_t)(xa/b);
+    qr.rem = (int32_t)(xa%b);
     if ((xa>=0) != (b>=0) && qr.rem) {
 	qr.quo--;
 	qr.rem += b;
@@ -456,7 +456,8 @@ edges_compare_x_for_y (const cairo_edge_t *a,
        HAVE_BX      = 0x2,
        HAVE_BOTH    = HAVE_AX | HAVE_BX
     } have_ax_bx = HAVE_BOTH;
-    int32_t ax, bx;
+    int32_t ax = 0;
+	int32_t bx = 0;
 
     /* XXX given we have x and dx? */
 

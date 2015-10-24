@@ -50,6 +50,7 @@
 #include "cairo-region-private.h"
 #include "cairo-surface-inline.h"
 #include "cairo-tee-surface-private.h"
+#include "cairo-ttrace.h"
 
 /**
  * SECTION:cairo-surface
@@ -517,23 +518,33 @@ cairo_surface_create_similar (cairo_surface_t  *other,
 			      int		width,
 			      int		height)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_surface_t *surface;
 
-    if (unlikely (other->status))
+    if (unlikely (other->status)) {
+	CAIRO_TRACE_END (__func__);
 	return _cairo_surface_create_in_error (other->status);
-    if (unlikely (other->finished))
+    }
+    if (unlikely (other->finished)) {
+	CAIRO_TRACE_END (__func__);
 	return _cairo_surface_create_in_error (CAIRO_STATUS_SURFACE_FINISHED);
-    if (unlikely (width < 0 || height < 0))
+    }
+    if (unlikely (width < 0 || height < 0)) {
+	CAIRO_TRACE_END (__func__);
 	return _cairo_surface_create_in_error (CAIRO_STATUS_INVALID_SIZE);
+    }
 
-    if (unlikely (! CAIRO_CONTENT_VALID (content)))
+    if (unlikely (! CAIRO_CONTENT_VALID (content))) {
+	CAIRO_TRACE_END (__func__);
 	return _cairo_surface_create_in_error (CAIRO_STATUS_INVALID_CONTENT);
+    }
 
     surface = _cairo_surface_create_similar_solid (other,
 						   content, width, height,
 						   CAIRO_COLOR_TRANSPARENT);
     assert (surface->is_clear);
 
+    CAIRO_TRACE_END (__func__);
     return surface;
 }
 
@@ -569,17 +580,26 @@ cairo_surface_create_similar_image (cairo_surface_t  *other,
 				    int		width,
 				    int		height)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_surface_t *image;
 
-    if (unlikely (other->status))
+    if (unlikely (other->status)) {
+	CAIRO_TRACE_END (__func__);
 	return _cairo_surface_create_in_error (other->status);
-    if (unlikely (other->finished))
+    }
+    if (unlikely (other->finished)) {
+	CAIRO_TRACE_END (__func__);
 	return _cairo_surface_create_in_error (CAIRO_STATUS_SURFACE_FINISHED);
+    }
 
-    if (unlikely (width < 0 || height < 0))
+    if (unlikely (width < 0 || height < 0)) {
+	CAIRO_TRACE_END (__func__);
 	return _cairo_surface_create_in_error (CAIRO_STATUS_INVALID_SIZE);
-    if (unlikely (! CAIRO_FORMAT_VALID (format)))
+    }
+    if (unlikely (! CAIRO_FORMAT_VALID (format))) {
+	CAIRO_TRACE_END (__func__);
 	return _cairo_surface_create_in_error (CAIRO_STATUS_INVALID_FORMAT);
+    }
 
     image = NULL;
     if (other->backend->create_similar_image)
@@ -590,6 +610,7 @@ cairo_surface_create_similar_image (cairo_surface_t  *other,
 
     assert (image->is_clear);
 
+    CAIRO_TRACE_END (__func__);
     return image;
 }
 slim_hidden_def (cairo_surface_create_similar_image);
@@ -628,6 +649,7 @@ cairo_image_surface_t *
 _cairo_surface_map_to_image (cairo_surface_t  *surface,
 			     const cairo_rectangle_int_t *extents)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_image_surface_t *image = NULL;
 
     assert (extents != NULL);
@@ -639,6 +661,7 @@ _cairo_surface_map_to_image (cairo_surface_t  *surface,
     if (image == NULL)
 	image = _cairo_image_surface_clone_subimage (surface, extents);
 
+    CAIRO_TRACE_END (__func__);
     return image;
 }
 
@@ -667,6 +690,7 @@ cairo_int_status_t
 _cairo_surface_unmap_image (cairo_surface_t       *surface,
 			    cairo_image_surface_t *image)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_surface_pattern_t pattern;
     cairo_rectangle_int_t extents;
     cairo_clip_t *clip;
@@ -689,8 +713,10 @@ _cairo_surface_unmap_image (cairo_surface_t       *surface,
 	! _cairo_image_surface_is_clone (image))
     {
 	status = surface->backend->unmap_image (surface, image);
-	if (status != CAIRO_INT_STATUS_UNSUPPORTED)
+	if (status != CAIRO_INT_STATUS_UNSUPPORTED) {
+	    CAIRO_TRACE_END (__func__);
 	    return status;
+	}
     }
 
     _cairo_pattern_init_for_surface (&pattern, &image->base);
@@ -720,6 +746,7 @@ destroy:
     cairo_surface_finish (&image->base);
     cairo_surface_destroy (&image->base);
 
+    CAIRO_TRACE_END (__func__);
     return status;
 }
 
@@ -755,19 +782,25 @@ cairo_surface_t *
 cairo_surface_map_to_image (cairo_surface_t  *surface,
 			    const cairo_rectangle_int_t *extents)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_rectangle_int_t rect;
     cairo_image_surface_t *image;
     cairo_status_t status;
 
-    if (unlikely (surface->status))
+    if (unlikely (surface->status)) {
+	CAIRO_TRACE_END (__func__);
 	return _cairo_surface_create_in_error (surface->status);
-    if (unlikely (surface->finished))
+    }
+    if (unlikely (surface->finished)) {
+	CAIRO_TRACE_END (__func__);
 	return _cairo_surface_create_in_error (CAIRO_STATUS_SURFACE_FINISHED);
+    }
 
     if (extents == NULL) {
-	if (unlikely (! surface->backend->get_extents (surface, &rect)))
+	if (unlikely (! surface->backend->get_extents (surface, &rect))) {
+	    CAIRO_TRACE_END (__func__);
 	    return _cairo_surface_create_in_error (CAIRO_STATUS_INVALID_SIZE);
-
+	}
 	extents = &rect;
     } else {
 	cairo_rectangle_int_t surface_extents;
@@ -775,8 +808,10 @@ cairo_surface_map_to_image (cairo_surface_t  *surface,
 	/* If this surface is bounded, we can't map parts
 	 * that are outside of it. */
 	if (likely (surface->backend->get_extents (surface, &surface_extents))) {
-	    if (unlikely (! _cairo_rectangle_contains_rectangle (&surface_extents, extents)))
+	    if (unlikely (! _cairo_rectangle_contains_rectangle (&surface_extents, extents))) {
+		CAIRO_TRACE_END (__func__);
 		return _cairo_surface_create_in_error (CAIRO_STATUS_INVALID_SIZE);
+	    }
 	}
     }
 
@@ -785,6 +820,7 @@ cairo_surface_map_to_image (cairo_surface_t  *surface,
     status = image->base.status;
     if (unlikely (status)) {
 	cairo_surface_destroy (&image->base);
+	CAIRO_TRACE_END (__func__);
 	return _cairo_surface_create_in_error (status);
     }
 
@@ -793,6 +829,7 @@ cairo_surface_map_to_image (cairo_surface_t  *surface,
 	image = _cairo_image_surface_clone_subimage (surface, extents);
     }
 
+    CAIRO_TRACE_END (__func__);
     return &image->base;
 }
 
@@ -815,6 +852,7 @@ void
 cairo_surface_unmap_image (cairo_surface_t *surface,
 			   cairo_surface_t *image)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_int_status_t status = CAIRO_STATUS_SUCCESS;
 
     if (unlikely (surface->status)) {
@@ -843,12 +881,14 @@ cairo_surface_unmap_image (cairo_surface_t *surface,
     if (unlikely (status))
 	_cairo_surface_set_error (surface, status);
 
+    CAIRO_TRACE_END (__func__);
     return;
 
 error:
     _cairo_surface_set_error (surface, status);
     cairo_surface_finish (image);
     cairo_surface_destroy (image);
+    CAIRO_TRACE_END (__func__);
 }
 
 cairo_surface_t *
@@ -858,14 +898,17 @@ _cairo_surface_create_similar_solid (cairo_surface_t	 *other,
 				     int		  height,
 				     const cairo_color_t *color)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_status_t status;
     cairo_surface_t *surface;
     cairo_solid_pattern_t pattern;
 
     surface = _cairo_surface_create_similar_scratch (other, content,
 						     width, height);
-    if (unlikely (surface->status))
+    if (unlikely (surface->status)) {
+	CAIRO_TRACE_END (__func__);
 	return surface;
+    }
 
     _cairo_pattern_init_solid (&pattern, color);
     status = _cairo_surface_paint (surface,
@@ -877,6 +920,7 @@ _cairo_surface_create_similar_solid (cairo_surface_t	 *other,
 	surface = _cairo_surface_create_in_error (status);
     }
 
+    CAIRO_TRACE_END (__func__);
     return surface;
 }
 
@@ -923,14 +967,19 @@ slim_hidden_def (cairo_surface_reference);
 void
 cairo_surface_destroy (cairo_surface_t *surface)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     if (surface == NULL ||
-	    CAIRO_REFERENCE_COUNT_IS_INVALID (&surface->ref_count))
+	    CAIRO_REFERENCE_COUNT_IS_INVALID (&surface->ref_count)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     assert (CAIRO_REFERENCE_COUNT_HAS_REFERENCE (&surface->ref_count));
 
-    if (! _cairo_reference_count_dec_and_test (&surface->ref_count))
+    if (! _cairo_reference_count_dec_and_test (&surface->ref_count)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     assert (surface->snapshot_of == NULL);
 
@@ -939,8 +988,10 @@ cairo_surface_destroy (cairo_surface_t *surface)
 	/* We may have been referenced by a snapshot prior to have
 	 * detaching it with the copy-on-write.
 	 */
-	if (CAIRO_REFERENCE_COUNT_GET_VALUE (&surface->ref_count))
+	if (CAIRO_REFERENCE_COUNT_GET_VALUE (&surface->ref_count)) {
+	    CAIRO_TRACE_END (__func__);
 	    return;
+	}
 
 	_cairo_surface_finish (surface);
     }
@@ -960,6 +1011,7 @@ cairo_surface_destroy (cairo_surface_t *surface)
     assert (! CAIRO_REFERENCE_COUNT_HAS_REFERENCE (&surface->ref_count));
 
     free (surface);
+    CAIRO_TRACE_END (__func__);
 }
 slim_hidden_def(cairo_surface_destroy);
 
@@ -1037,14 +1089,21 @@ _cairo_surface_finish (cairo_surface_t *surface)
 void
 cairo_surface_finish (cairo_surface_t *surface)
 {
-    if (surface == NULL)
+    CAIRO_TRACE_BEGIN (__func__);
+    if (surface == NULL) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
-    if (CAIRO_REFERENCE_COUNT_IS_INVALID (&surface->ref_count))
+    if (CAIRO_REFERENCE_COUNT_IS_INVALID (&surface->ref_count)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
-    if (surface->finished)
+    if (surface->finished) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     /* We have to be careful when decoupling potential reference cycles */
     cairo_surface_reference (surface);
@@ -1054,6 +1113,7 @@ cairo_surface_finish (cairo_surface_t *surface)
     _cairo_surface_finish (surface);
 
     cairo_surface_destroy (surface);
+    CAIRO_TRACE_END (__func__);
 }
 slim_hidden_def (cairo_surface_finish);
 
@@ -1156,6 +1216,7 @@ cairo_surface_get_mime_data (cairo_surface_t		*surface,
                              const unsigned char       **data,
                              unsigned long		*length)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_user_data_slot_t *slots;
     int i, num_slots;
 
@@ -1163,8 +1224,10 @@ cairo_surface_get_mime_data (cairo_surface_t		*surface,
     *length = 0;
 
     /* Prevent reads of the array during teardown */
-    if (! CAIRO_REFERENCE_COUNT_HAS_REFERENCE (&surface->ref_count))
+    if (! CAIRO_REFERENCE_COUNT_HAS_REFERENCE (&surface->ref_count)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     /* The number of mime-types attached to a surface is usually small,
      * typically zero. Therefore it is quicker to do a strcmp() against
@@ -1179,9 +1242,11 @@ cairo_surface_get_mime_data (cairo_surface_t		*surface,
 
 	    *data = mime_data->data;
 	    *length = mime_data->length;
+	    CAIRO_TRACE_END (__func__);
 	    return;
 	}
     }
+    CAIRO_TRACE_END (__func__);
 }
 slim_hidden_def (cairo_surface_get_mime_data);
 
@@ -1282,28 +1347,41 @@ cairo_surface_set_mime_data (cairo_surface_t		*surface,
 			     cairo_destroy_func_t	 destroy,
 			     void			*closure)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_status_t status;
     cairo_mime_data_t *mime_data;
 
-    if (CAIRO_REFERENCE_COUNT_IS_INVALID (&surface->ref_count))
+    if (CAIRO_REFERENCE_COUNT_IS_INVALID (&surface->ref_count)) {
+	CAIRO_TRACE_END (__func__);
 	return surface->status;
+    }
 
-    if (! CAIRO_REFERENCE_COUNT_HAS_REFERENCE (&surface->ref_count))
+    if (! CAIRO_REFERENCE_COUNT_HAS_REFERENCE (&surface->ref_count)) {
+	CAIRO_TRACE_END (__func__);
 	return _cairo_error (CAIRO_STATUS_SURFACE_FINISHED);
+    }
 
-    if (unlikely (surface->status))
+    if (unlikely (surface->status)) {
+	CAIRO_TRACE_END (__func__);
 	return surface->status;
-    if (unlikely (surface->finished))
+    }
+    if (unlikely (surface->finished)) {
+	CAIRO_TRACE_END (__func__);
 	return _cairo_surface_set_error (surface, _cairo_error (CAIRO_STATUS_SURFACE_FINISHED));
+    }
 
     status = _cairo_intern_string (&mime_type, -1);
-    if (unlikely (status))
+    if (unlikely (status)) {
+	CAIRO_TRACE_END (__func__);
 	return _cairo_surface_set_error (surface, status);
+    }
 
     if (data != NULL) {
 	mime_data = malloc (sizeof (cairo_mime_data_t));
-	if (unlikely (mime_data == NULL))
+	if (unlikely (mime_data == NULL)) {
+	    CAIRO_TRACE_END (__func__);
 	    return _cairo_surface_set_error (surface, _cairo_error (CAIRO_STATUS_NO_MEMORY));
+	}
 
 	CAIRO_REFERENCE_COUNT_INIT (&mime_data->ref_count, 1);
 
@@ -1320,9 +1398,10 @@ cairo_surface_set_mime_data (cairo_surface_t		*surface,
 					      _cairo_mime_data_destroy);
     if (unlikely (status)) {
 	free (mime_data);
-
+	CAIRO_TRACE_END (__func__);
 	return _cairo_surface_set_error (surface, status);
     }
+    CAIRO_TRACE_END (__func__);
 
     return CAIRO_STATUS_SUCCESS;
 }
@@ -1373,24 +1452,32 @@ cairo_status_t
 _cairo_surface_copy_mime_data (cairo_surface_t *dst,
 			       cairo_surface_t *src)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_status_t status;
 
-    if (dst->status)
+    if (dst->status) {
+	CAIRO_TRACE_END (__func__);
 	return dst->status;
+    }
 
-    if (src->status)
+    if (src->status) {
+	CAIRO_TRACE_END (__func__);
 	return _cairo_surface_set_error (dst, src->status);
+    }
 
     /* first copy the mime-data, discarding any already set on dst */
     status = _cairo_user_data_array_copy (&dst->mime_data, &src->mime_data);
-    if (unlikely (status))
+    if (unlikely (status)) {
+	CAIRO_TRACE_END (__func__);
 	return _cairo_surface_set_error (dst, status);
+    }
 
     /* now increment the reference counters for the copies */
     _cairo_user_data_array_foreach (&dst->mime_data,
 				    _cairo_mime_data_reference,
 				    NULL);
 
+    CAIRO_TRACE_END (__func__);
     return CAIRO_STATUS_SUCCESS;
 }
 
@@ -1499,17 +1586,23 @@ _cairo_surface_flush (cairo_surface_t *surface, unsigned flags)
 void
 cairo_surface_flush (cairo_surface_t *surface)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_status_t status;
 
-    if (surface->status)
+    if (surface->status) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
-    if (surface->finished)
+    if (surface->finished) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     status = _cairo_surface_flush (surface, 0);
     if (unlikely (status))
 	_cairo_surface_set_error (surface, status);
+    CAIRO_TRACE_END (__func__);
 }
 slim_hidden_def (cairo_surface_flush);
 
@@ -1867,23 +1960,31 @@ _cairo_surface_acquire_source_image (cairo_surface_t         *surface,
 				     cairo_image_surface_t  **image_out,
 				     void                   **image_extra)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_status_t status;
 
-    if (unlikely (surface->status))
+    if (unlikely (surface->status)) {
+	CAIRO_TRACE_END (__func__);
 	return surface->status;
+    }
 
     assert (!surface->finished);
 
-    if (surface->backend->acquire_source_image == NULL)
+    if (surface->backend->acquire_source_image == NULL) {
+	CAIRO_TRACE_END (__func__);
 	return CAIRO_INT_STATUS_UNSUPPORTED;
+    }
 
     status = surface->backend->acquire_source_image (surface,
 						     image_out, image_extra);
-    if (unlikely (status))
+    if (unlikely (status)) {
+	CAIRO_TRACE_END (__func__);
 	return _cairo_surface_set_error (surface, status);
+    }
 
     _cairo_debug_check_image_surface_is_defined (&(*image_out)->base);
 
+    CAIRO_TRACE_END (__func__);
     return CAIRO_STATUS_SUCCESS;
 }
 
@@ -1892,14 +1993,18 @@ _cairo_surface_default_acquire_source_image (void                    *_surface,
 					     cairo_image_surface_t  **image_out,
 					     void                   **image_extra)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_surface_t *surface = _surface;
     cairo_rectangle_int_t extents;
 
-    if (unlikely (! surface->backend->get_extents (surface, &extents)))
+    if (unlikely (! surface->backend->get_extents (surface, &extents))) {
+	CAIRO_TRACE_END (__func__);
 	return _cairo_error (CAIRO_STATUS_INVALID_SIZE);
+    }
 
     *image_out = _cairo_surface_map_to_image (surface, &extents);
     *image_extra = NULL;
+    CAIRO_TRACE_END (__func__);
     return (*image_out)->base.status;
 }
 
@@ -1999,25 +2104,36 @@ _cairo_surface_paint (cairo_surface_t		*surface,
 		      const cairo_pattern_t	*source,
 		      const cairo_clip_t	*clip)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_int_status_t status;
 
     TRACE ((stderr, "%s\n", __FUNCTION__));
-    if (unlikely (surface->status))
+    if (unlikely (surface->status)) {
+        CAIRO_TRACE_END (__func__);
 	return surface->status;
+    }
 
-    if (_cairo_clip_is_all_clipped (clip))
+    if (_cairo_clip_is_all_clipped (clip)) {
+        CAIRO_TRACE_END (__func__);
 	return CAIRO_STATUS_SUCCESS;
+    }
 
     status = _pattern_has_error (source);
-    if (unlikely (status))
+    if (unlikely (status)) {
+        CAIRO_TRACE_END (__func__);
 	return status;
+    }
 
-    if (nothing_to_do (surface, op, source))
+    if (nothing_to_do (surface, op, source)) {
+        CAIRO_TRACE_END (__func__);
 	return CAIRO_STATUS_SUCCESS;
+    }
 
     status = _cairo_surface_begin_modification (surface);
-    if (unlikely (status))
+    if (unlikely (status)) {
+        CAIRO_TRACE_END (__func__);
 	return status;
+    }
 
     status = surface->backend->paint (surface, op, source, clip);
     if (status != CAIRO_INT_STATUS_NOTHING_TO_DO) {
@@ -2025,6 +2141,7 @@ _cairo_surface_paint (cairo_surface_t		*surface,
 	surface->serial++;
     }
 
+    CAIRO_TRACE_END (__func__);
     return _cairo_surface_set_error (surface, status);
 }
 
@@ -2035,36 +2152,50 @@ _cairo_surface_mask (cairo_surface_t		*surface,
 		     const cairo_pattern_t	*mask,
 		     const cairo_clip_t		*clip)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_int_status_t status;
 
     TRACE ((stderr, "%s\n", __FUNCTION__));
-    if (unlikely (surface->status))
+    if (unlikely (surface->status)) {
+	CAIRO_TRACE_END (__func__);
 	return surface->status;
+    }
 
-    if (_cairo_clip_is_all_clipped (clip))
+    if (_cairo_clip_is_all_clipped (clip)) {
+	CAIRO_TRACE_END (__func__);
 	return CAIRO_STATUS_SUCCESS;
+    }
 
     /* If the mask is blank, this is just an expensive no-op */
     if (_cairo_pattern_is_clear (mask) &&
 	_cairo_operator_bounded_by_mask (op))
     {
+	CAIRO_TRACE_END (__func__);
 	return CAIRO_STATUS_SUCCESS;
     }
 
     status = _pattern_has_error (source);
-    if (unlikely (status))
+    if (unlikely (status)) {
+	CAIRO_TRACE_END (__func__);
 	return status;
+    }
 
     status = _pattern_has_error (mask);
-    if (unlikely (status))
+    if (unlikely (status)) {
+	CAIRO_TRACE_END (__func__);
 	return status;
+    }
 
-    if (nothing_to_do (surface, op, source))
+    if (nothing_to_do (surface, op, source)) {
+	CAIRO_TRACE_END (__func__);
 	return CAIRO_STATUS_SUCCESS;
+    }
 
     status = _cairo_surface_begin_modification (surface);
-    if (unlikely (status))
+    if (unlikely (status)) {
+	CAIRO_TRACE_END (__func__);
 	return status;
+    }
 
     status = surface->backend->mask (surface, op, source, mask, clip);
     if (status != CAIRO_INT_STATUS_NOTHING_TO_DO) {
@@ -2072,6 +2203,7 @@ _cairo_surface_mask (cairo_surface_t		*surface,
 	surface->serial++;
     }
 
+    CAIRO_TRACE_END (__func__);
     return _cairo_surface_set_error (surface, status);
 }
 
@@ -2092,33 +2224,44 @@ _cairo_surface_fill_stroke (cairo_surface_t	    *surface,
 			    cairo_antialias_t	     stroke_antialias,
 			    const cairo_clip_t	    *clip)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_int_status_t status;
 
     TRACE ((stderr, "%s\n", __FUNCTION__));
-    if (unlikely (surface->status))
+    if (unlikely (surface->status)) {
+        CAIRO_TRACE_END (__func__);
 	return surface->status;
+    }
 
-    if (_cairo_clip_is_all_clipped (clip))
+    if (_cairo_clip_is_all_clipped (clip)) {
+        CAIRO_TRACE_END (__func__);
 	return CAIRO_STATUS_SUCCESS;
+    }
 
     if (surface->is_clear &&
 	fill_op == CAIRO_OPERATOR_CLEAR &&
-	stroke_op == CAIRO_OPERATOR_CLEAR)
-    {
+	stroke_op == CAIRO_OPERATOR_CLEAR) {
+        CAIRO_TRACE_END (__func__);
 	return CAIRO_STATUS_SUCCESS;
     }
 
     status = _pattern_has_error (fill_source);
-    if (unlikely (status))
+    if (unlikely (status)) {
+        CAIRO_TRACE_END (__func__);
 	return status;
+    }
 
     status = _pattern_has_error (stroke_source);
-    if (unlikely (status))
+    if (unlikely (status)) {
+        CAIRO_TRACE_END (__func__);
 	return status;
+    }
 
     status = _cairo_surface_begin_modification (surface);
-    if (unlikely (status))
+    if (unlikely (status)) {
+        CAIRO_TRACE_END (__func__);
 	return status;
+    }
 
     if (surface->backend->fill_stroke) {
 	cairo_matrix_t dev_ctm = *stroke_ctm;
@@ -2157,6 +2300,7 @@ _cairo_surface_fill_stroke (cairo_surface_t	    *surface,
 	surface->serial++;
     }
 
+    CAIRO_TRACE_END (__func__);
     return _cairo_surface_set_error (surface, status);
 }
 
@@ -2172,25 +2316,36 @@ _cairo_surface_stroke (cairo_surface_t			*surface,
 		       cairo_antialias_t		 antialias,
 		       const cairo_clip_t		*clip)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_int_status_t status;
 
     TRACE ((stderr, "%s\n", __FUNCTION__));
-    if (unlikely (surface->status))
+    if (unlikely (surface->status)) {
+	CAIRO_TRACE_END (__func__);
 	return surface->status;
+    }
 
-    if (_cairo_clip_is_all_clipped (clip))
+    if (_cairo_clip_is_all_clipped (clip)) {
+	CAIRO_TRACE_END (__func__);
 	return CAIRO_STATUS_SUCCESS;
+    }
 
     status = _pattern_has_error (source);
-    if (unlikely (status))
+    if (unlikely (status)) {
+	CAIRO_TRACE_END (__func__);
 	return status;
+    }
 
-    if (nothing_to_do (surface, op, source))
+    if (nothing_to_do (surface, op, source)) {
+	CAIRO_TRACE_END (__func__);
 	return CAIRO_STATUS_SUCCESS;
+    }
 
     status = _cairo_surface_begin_modification (surface);
-    if (unlikely (status))
+    if (unlikely (status)) {
+	CAIRO_TRACE_END (__func__);
 	return status;
+    }
 
     status = surface->backend->stroke (surface, op, source,
 				       path, stroke_style,
@@ -2202,6 +2357,7 @@ _cairo_surface_stroke (cairo_surface_t			*surface,
 	surface->serial++;
     }
 
+    CAIRO_TRACE_END (__func__);
     return _cairo_surface_set_error (surface, status);
 }
 
@@ -2215,25 +2371,36 @@ _cairo_surface_fill (cairo_surface_t		*surface,
 		     cairo_antialias_t		 antialias,
 		     const cairo_clip_t		*clip)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_int_status_t status;
 
     TRACE ((stderr, "%s\n", __FUNCTION__));
-    if (unlikely (surface->status))
+    if (unlikely (surface->status)) {
+        CAIRO_TRACE_END (__func__);
 	return surface->status;
+    }
 
-    if (_cairo_clip_is_all_clipped (clip))
+    if (_cairo_clip_is_all_clipped (clip)) {
+        CAIRO_TRACE_END (__func__);
 	return CAIRO_STATUS_SUCCESS;
+    }
 
     status = _pattern_has_error (source);
-    if (unlikely (status))
+    if (unlikely (status)) {
+        CAIRO_TRACE_END (__func__);
 	return status;
+    }
 
-    if (nothing_to_do (surface, op, source))
+    if (nothing_to_do (surface, op, source)) {
+        CAIRO_TRACE_END (__func__);
 	return CAIRO_STATUS_SUCCESS;
+    }
 
     status = _cairo_surface_begin_modification (surface);
-    if (unlikely (status))
+    if (unlikely (status)) {
+        CAIRO_TRACE_END (__func__);
 	return status;
+    }
 
     status = surface->backend->fill (surface, op, source,
 				     path, fill_rule,
@@ -2244,6 +2411,7 @@ _cairo_surface_fill (cairo_surface_t		*surface,
 	surface->serial++;
     }
 
+    CAIRO_TRACE_END (__func__);
     return _cairo_surface_set_error (surface, status);
 }
 
@@ -2264,20 +2432,27 @@ _cairo_surface_fill (cairo_surface_t		*surface,
 void
 cairo_surface_copy_page (cairo_surface_t *surface)
 {
-    if (unlikely (surface->status))
+    CAIRO_TRACE_BEGIN (__func__);
+    if (unlikely (surface->status)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     assert (surface->snapshot_of == NULL);
 
     if (unlikely (surface->finished)) {
 	_cairo_surface_set_error (surface, CAIRO_STATUS_SURFACE_FINISHED);
+	CAIRO_TRACE_END (__func__);
 	return;
     }
 
     /* It's fine if some backends don't implement copy_page */
-    if (surface->backend->copy_page == NULL)
+    if (surface->backend->copy_page == NULL) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
+    CAIRO_TRACE_END (__func__);
     _cairo_surface_set_error (surface, surface->backend->copy_page (surface));
 }
 slim_hidden_def (cairo_surface_copy_page);
@@ -2297,25 +2472,33 @@ slim_hidden_def (cairo_surface_copy_page);
 void
 cairo_surface_show_page (cairo_surface_t *surface)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_status_t status;
 
-    if (unlikely (surface->status))
+    if (unlikely (surface->status)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     if (unlikely (surface->finished)) {
 	_cairo_surface_set_error (surface, CAIRO_STATUS_SURFACE_FINISHED);
+	CAIRO_TRACE_END (__func__);
 	return;
     }
 
     status = _cairo_surface_begin_modification (surface);
     if (unlikely (status)) {
 	_cairo_surface_set_error (surface, status);
+	CAIRO_TRACE_END (__func__);
 	return;
     }
 
     /* It's fine if some backends don't implement show_page */
-    if (surface->backend->show_page == NULL)
+    if (surface->backend->show_page == NULL) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
+    CAIRO_TRACE_END (__func__);
 
     _cairo_surface_set_error (surface, surface->backend->show_page (surface));
 }
@@ -2469,8 +2652,9 @@ _cairo_surface_show_text_glyphs (cairo_surface_t	    *surface,
 						    &font_options);
     }
     status = cairo_scaled_font_status (dev_scaled_font);
-    if (unlikely (status))
+    if (unlikely (status)) {
 	return _cairo_surface_set_error (surface, status);
+    }
 
     status = CAIRO_INT_STATUS_UNSUPPORTED;
 

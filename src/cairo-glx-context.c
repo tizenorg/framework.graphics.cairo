@@ -98,8 +98,14 @@ _glx_acquire (void *abstract_ctx)
     if (!_context_acquisition_changed_glx_state (ctx))
 	return;
 
-    _cairo_gl_context_reset (&ctx->base);
+    /* If current context is not cairo-gl context, some problem can be occurred at gl API
+       in _cairo_gl_context_reset() when it is called before eglMakeCurrent().
+       So, _cairo_gl_context_reset() should be moved after eglMakeCurrent(). (2015-9-15)*/
+
+    //_cairo_gl_context_reset (&ctx->base);
     glXMakeCurrent (ctx->display, current_drawable, ctx->context);
+    _cairo_gl_context_reset (&ctx->base);
+
     ctx->current_drawable = current_drawable;
 }
 
@@ -252,7 +258,7 @@ _cairo_glx_get_proc_address (void *data, const char *name)
 	    return func_map[i].func;
     }
 
-  return glXGetProcAddress (name);
+    return glXGetProcAddress (name);
 }
 
 cairo_device_t *

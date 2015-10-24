@@ -41,6 +41,7 @@
 #include "cairo-gl-private.h"
 
 #include "cairo-error-private.h"
+#include "cairo-ttrace.h"
 
 #if CAIRO_HAS_EVASGL_SURFACE && CAIRO_HAS_GLESV2_SURFACE
 extern void glActiveTexture (GLenum texture);
@@ -134,12 +135,16 @@ _egl_query_current_state (cairo_egl_context_t *ctx)
 
     /* If any of the values were none, assume they are all none. Not all
        drivers seem well behaved when it comes to using these values across
-       multiple threads. */
+       multiple threads. (2013-3-29)*/
+    /* In case of supporting the EGL_KHR_surfaceless_context extension,
+       the below code do not fit and dummy_surface is not created. (2015-7-22)*/
+    if (ctx->dummy_surface) {
     if (ctx->previous_surface == EGL_NO_SURFACE ||
         ctx->previous_context == EGL_NO_CONTEXT || ctx->previous_display == EGL_NO_DISPLAY) {
         ctx->previous_surface = EGL_NO_SURFACE;
         ctx->previous_context = EGL_NO_CONTEXT;
         ctx->previous_display = EGL_NO_DISPLAY;
+        }
     }
 }
 
@@ -153,9 +158,14 @@ _egl_acquire (void *abstract_ctx)
     if (!_context_acquisition_changed_egl_state (ctx, current_surface))
 	return;
 
-    _cairo_gl_context_reset (&ctx->base);
+    /* If current context is not cairo-gl context, some problem can be occurred at gl API
+       in _cairo_gl_context_reset() when it is called before eglMakeCurrent().
+       So, _cairo_gl_context_reset() should be moved after eglMakeCurrent(). (2015-9-15)*/
+
+    //_cairo_gl_context_reset (&ctx->base);
     eglMakeCurrent (ctx->display,
 		    current_surface, current_surface, ctx->context);
+    _cairo_gl_context_reset (&ctx->base);
 
     ctx->current_surface = current_surface;
 }
@@ -192,21 +202,25 @@ static void
 _egl_swap_buffers (void *abstract_ctx,
 		   cairo_gl_surface_t *abstract_surface)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_egl_context_t *ctx = abstract_ctx;
     cairo_egl_surface_t *surface = (cairo_egl_surface_t *) abstract_surface;
 
     eglSwapBuffers (ctx->display, surface->egl);
+    CAIRO_TRACE_END (__func__);
 }
 
 static void
 _egl_destroy (void *abstract_ctx)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_egl_context_t *ctx = abstract_ctx;
 
     eglMakeCurrent (ctx->display,
 		    EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     if (ctx->dummy_surface != EGL_NO_SURFACE)
         eglDestroySurface (ctx->display, ctx->dummy_surface);
+    CAIRO_TRACE_END (__func__);
 }
 
 static cairo_bool_t
@@ -282,6 +296,7 @@ _cairo_egl_get_proc_address (void *data, const char *name)
 cairo_device_t *
 cairo_egl_device_create (EGLDisplay dpy, EGLContext egl)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_egl_context_t *ctx;
     cairo_status_t status;
     int attribs[] = {
@@ -293,8 +308,10 @@ cairo_egl_device_create (EGLDisplay dpy, EGLContext egl)
     EGLint numConfigs;
 
     ctx = calloc (1, sizeof (cairo_egl_context_t));
-    if (unlikely (ctx == NULL))
+    if (unlikely (ctx == NULL)) {
+	CAIRO_TRACE_END (__func__);
 	return _cairo_gl_context_create_in_error (CAIRO_STATUS_NO_MEMORY);
+    }
 
     ctx->display = dpy;
     ctx->context = egl;
@@ -328,11 +345,13 @@ cairo_egl_device_create (EGLDisplay dpy, EGLContext egl)
 	ctx->dummy_surface = eglCreatePbufferSurface (dpy, config, attribs);
 	if (ctx->dummy_surface == NULL) {
 	    free (ctx);
+	    CAIRO_TRACE_END (__func__);
 	    return _cairo_gl_context_create_in_error (CAIRO_STATUS_NO_MEMORY);
 	}
 
 	if (!eglMakeCurrent (dpy, ctx->dummy_surface, ctx->dummy_surface, egl)) {
 	    free (ctx);
+	    CAIRO_TRACE_END (__func__);
 	    return _cairo_gl_context_create_in_error (CAIRO_STATUS_NO_MEMORY);
 	}
     }
@@ -341,6 +360,7 @@ cairo_egl_device_create (EGLDisplay dpy, EGLContext egl)
 				      _cairo_egl_get_proc_address, NULL);
     if (unlikely (status)) {
 	free (ctx);
+	CAIRO_TRACE_END (__func__);
 	return _cairo_gl_context_create_in_error (status);
     }
 
@@ -349,6 +369,7 @@ cairo_egl_device_create (EGLDisplay dpy, EGLContext egl)
 	if (ctx->dummy_surface != EGL_NO_SURFACE)
 	    eglDestroySurface (dpy, ctx->dummy_surface);
 	free (ctx);
+	CAIRO_TRACE_END (__func__);
 	return _cairo_gl_context_create_in_error (status);
     }
 
@@ -356,6 +377,7 @@ cairo_egl_device_create (EGLDisplay dpy, EGLContext egl)
 
     ctx->current_surface = EGL_NO_SURFACE;
 
+    CAIRO_TRACE_END (__func__);
     return &ctx->base.base;
 }
 
@@ -365,25 +387,35 @@ cairo_gl_surface_create_for_egl (cairo_device_t	*device,
 				 int		 width,
 				 int		 height)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_egl_surface_t *surface;
 
-    if (unlikely (device->status))
+    if (unlikely (device->status)) {
+	CAIRO_TRACE_END (__func__);
 	return _cairo_surface_create_in_error (device->status);
+    }
 
-    if (device->backend->type != CAIRO_DEVICE_TYPE_GL)
+    if (device->backend->type != CAIRO_DEVICE_TYPE_GL) {
+	CAIRO_TRACE_END (__func__);
 	return _cairo_surface_create_in_error (_cairo_error (CAIRO_STATUS_SURFACE_TYPE_MISMATCH));
+    }
 
-    if (width <= 0 || height <= 0)
+    if (width <= 0 || height <= 0) {
+	CAIRO_TRACE_END (__func__);
         return _cairo_surface_create_in_error (_cairo_error (CAIRO_STATUS_INVALID_SIZE));
+    }
 
     surface = calloc (1, sizeof (cairo_egl_surface_t));
-    if (unlikely (surface == NULL))
+    if (unlikely (surface == NULL)) {
+	CAIRO_TRACE_END (__func__);
 	return _cairo_surface_create_in_error (_cairo_error (CAIRO_STATUS_NO_MEMORY));
+    }
 
     _cairo_gl_surface_init (device, &surface->base,
 			    CAIRO_CONTENT_COLOR_ALPHA, width, height);
     surface->egl = egl;
 
+    CAIRO_TRACE_END (__func__);
     return &surface->base.base;
 }
 

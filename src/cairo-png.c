@@ -41,6 +41,7 @@
 #include "cairo-error-private.h"
 #include "cairo-image-surface-private.h"
 #include "cairo-output-stream-private.h"
+#include "cairo-ttrace.h"
 
 #include <stdio.h>
 #include <errno.h>
@@ -171,6 +172,7 @@ write_png (cairo_surface_t	*surface,
 	   png_rw_ptr		write_func,
 	   void			*closure)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     int i;
     cairo_int_status_t status;
     cairo_image_surface_t *image;
@@ -187,10 +189,14 @@ write_png (cairo_surface_t	*surface,
 						  &image,
 						  &image_extra);
 
-    if (status == CAIRO_INT_STATUS_UNSUPPORTED)
+    if (status == CAIRO_INT_STATUS_UNSUPPORTED) {
+	CAIRO_TRACE_END (__func__);
 	return _cairo_error (CAIRO_STATUS_SURFACE_TYPE_MISMATCH);
-    else if (unlikely (status))
+    }
+    else if (unlikely (status)) {
+	CAIRO_TRACE_END (__func__);
         return status;
+    }
 
     /* PNG complains about "Image width or height is zero in IHDR" */
     if (image->width == 0 || image->height == 0) {
@@ -314,6 +320,7 @@ BAIL2:
 BAIL1:
     _cairo_surface_release_source_image (surface, image, image_extra);
 
+    CAIRO_TRACE_END (__func__);
     return status;
 }
 
@@ -426,17 +433,23 @@ cairo_surface_write_to_png_stream (cairo_surface_t	*surface,
 				   cairo_write_func_t	write_func,
 				   void			*closure)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     struct png_write_closure_t png_closure;
 
-    if (surface->status)
+    if (surface->status) {
+	CAIRO_TRACE_END (__func__);
 	return surface->status;
+    }
 
-    if (surface->finished)
+    if (surface->finished) {
+	CAIRO_TRACE_END (__func__);
 	return _cairo_error (CAIRO_STATUS_SURFACE_FINISHED);
+    }
 
     png_closure.write_func = write_func;
     png_closure.closure = closure;
 
+    CAIRO_TRACE_END (__func__);
     return write_png (surface, stream_write_func, &png_closure);
 }
 slim_hidden_def (cairo_surface_write_to_png_stream);

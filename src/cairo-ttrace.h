@@ -1,6 +1,7 @@
-/* cairo - a vector graphics library with display and print output
+/* Cairo - a vector graphics library with display and print output
  *
- * Copyright © 2003 University of Southern California
+ * Copyright © 2009 Chris Wilson
+ * Copyright © 2014 Samsung Electronics
  *
  * This library is free software; you can redistribute it and/or
  * modify it either under the terms of the GNU Lesser General Public
@@ -27,13 +28,20 @@
  *
  * The Original Code is the cairo graphics library.
  *
- * The Initial Developer of the Original Code is University of Southern
- * California.
- *
- * Contributor(s):
- *	Carl D. Worth <cworth@cworth.org>
  */
 
-#include "cairoint.h"
 
-#include "cairo-fixed-private.h"
+#ifdef CAIRO_HAS_TTRACE
+#include <ttrace.h>
+//#define CAIRO_TRACE_BEGIN(NAME) traceBegin(TTRACE_TAG_GRAPHICS, NAME)
+//#define CAIRO_TRACE_END() traceEnd(TTRACE_TAG_GRAPHICS)
+#define CAIRO_TRACE_BEGIN(NAME) traceAsyncBegin (TTRACE_TAG_GRAPHICS, 0, NAME);
+#define CAIRO_TRACE_END(NAME) traceAsyncEnd(TTRACE_TAG_GRAPHICS, 0, NAME);
+#else
+#define CAIRO_TRACE_BEGIN(NAME)
+#define CAIRO_TRACE_END(NAME)
+#define CAIRO_TRACE_ASYNC_BEGIN(NAME, KEY)
+#define CAIRO_TRACE_ASYNC_END(NAME, KEY)
+#endif
+
+

@@ -139,6 +139,9 @@ endif
 ifeq ($(CAIRO_HAS_TRACE),1)
 	@echo "#define CAIRO_HAS_TRACE 1" >> $(top_srcdir)/src/cairo-features.h
 endif
+ifeq ($(CAIRO_HAS_TTRACE),1)
+	@echo "#define CAIRO_HAS_TTRACE 1" >> $(top_srcdir)/src/cairo-features.h
+endif
 ifeq ($(CAIRO_HAS_INTERPRETER),1)
 	@echo "#define CAIRO_HAS_INTERPRETER 1" >> $(top_srcdir)/src/cairo-features.h
 endif

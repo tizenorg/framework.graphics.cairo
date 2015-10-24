@@ -11,9 +11,11 @@ SUBDIRS += cairo-script
 endif
 
 if CAIRO_HAS_TRACE
+#SUBDIRS += cairo-trace
 if CAIRO_HAS_DLSYM
 if CAIRO_HAS_SCRIPT_SURFACE
 if CAIRO_HAS_TEE_SURFACE
+#SUBDIRS += cairo-fdr
 endif
 endif
 endif
@@ -23,6 +25,7 @@ if BUILD_SPHINX
 if CAIRO_HAS_DLSYM
 if CAIRO_HAS_SCRIPT_SURFACE
 if CAIRO_HAS_TEE_SURFACE
+#SUBDIRS += cairo-sphinx
 endif
 endif
 endif

@@ -262,6 +262,12 @@ _cairo_image_gaussian_filter (cairo_surface_t *src,  const cairo_pattern_t *patt
 				  0, 0,
 				  width, height);
 
+	if (src_width == 0 || src_height == 0) {
+	    cairo_surface_destroy (&clone_image->base);
+	    clone_image = (cairo_image_surface_t *)cairo_surface_reference (src);
+	    goto DONE;
+	}
+
 	/* paint scratch_surfaces[0] to clone */
 	/* set up transform matrix */
         cairo_matrix_init_scale (&matrix,

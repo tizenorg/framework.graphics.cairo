@@ -1,7 +1,7 @@
 .deps
 .libs
 .perf
-cairo-*.*.*
+#cairo-*.*.*
 ChangeLog*
 Makefile
 Makefile.in

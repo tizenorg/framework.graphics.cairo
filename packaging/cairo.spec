@@ -4,7 +4,7 @@ Summary:    A vector graphics library
 Version:    1.12.14
 Release:    10
 Group:      System/Libraries
-License:    LGPL-2.1+ or MPL-1.1
+License:    MPL-1.1 or LGPL-2.1+
 URL:        http://www.cairographics.org
 Source0:    http://cairographics.org/releases/%{name}-%{version}.tar.gz
 Source1001: packaging/cairo.manifest
@@ -26,10 +26,11 @@ BuildRequires:  pkgconfig(xcb)
 BuildRequires:  pkgconfig(xcb-render)
 #BuildRequires:  pkgconfig(xcb-renderutil)
 BuildRequires:  pkgconfig(xcb-shm)
-BuildRequires:  pkgconfig(opengl-es-20)
+BuildRequires:  pkgconfig(gles20)
 BuildRequires:  pkgconfig(ecore)
 BuildRequires:  pkgconfig(evas)
-BuildRequires:  pkgconfig(elementary)
+BuildRequires:  pkgconfig(ttrace)
+
 #BuildRequires:  pkgconfig(librsvg-2.0)
 BuildRequires:  binutils-devel
 BuildRequires:  which
@@ -62,15 +63,16 @@ NOCONFIGURE=1 ./autogen.sh
     --x-libraries=%{_libdir} \
     --disable-gtk-doc \
 %ifarch %ix86
-    --enable-xcb \
+    --enable-xcb\
     --enable-egl=no \
     --enable-glesv2=no \
-    --enable-evasgl=yes \
+    --enable-evasgl=yes\
 %else
     --enable-xcb \
     --enable-egl=yes \
     --enable-glesv2=yes \
-    --enable-evasgl=yes
+    --enable-evasgl=yes \
+    --enable-ttrace=no
 %endif
 
 make %{?jobs:-j%jobs}
@@ -88,14 +90,20 @@ cat COPYING COPYING-LGPL-2.1 COPYING-MPL-1.1 > %{buildroot}/usr/share/license/%{
 
 %files
 %manifest cairo.manifest
-%{_libdir}/libcairo.so.*
+%{_libdir}/libcairo.so*
+%if "%{?tizen_profile_name}" == "tv"
+%{_libdir}/libcairo-*.so.*
+%endif
 /usr/share/license/%{name}
-%exclude %{_libdir}/libcairo-*.so.*
 
 %files devel
 %manifest cairo.manifest
 %{_includedir}/*
-%{_libdir}/libcairo*.so
+%{_libdir}/libcairo-*.so
+%if "%{?tizen_profile_name}" == "mobile"
 %{_libdir}/libcairo-*.so.*
+%endif
+%if "%{?tizen_profile_name}" == "wearable"
+%{_libdir}/libcairo-*.so.*
+%endif
 %{_libdir}/pkgconfig/*
-

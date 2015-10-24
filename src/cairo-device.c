@@ -37,6 +37,7 @@
 #include "cairo-device-private.h"
 #include "cairo-error-private.h"
 #include "cairo-list-inline.h"
+#include "cairo-ttrace.h"
 
 /**
  * SECTION:cairo-device
@@ -169,6 +170,7 @@ void
 _cairo_device_init (cairo_device_t *device,
 		    const cairo_device_backend_t *backend)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     CAIRO_REFERENCE_COUNT_INIT (&device->ref_count, 1);
     device->status = CAIRO_STATUS_SUCCESS;
 
@@ -183,6 +185,7 @@ _cairo_device_init (cairo_device_t *device,
 
     cairo_list_init (&device->shadow_caches);
     device->shadow_caches_size = 0;
+    CAIRO_TRACE_END (__func__);
 }
 
 /**
@@ -330,17 +333,21 @@ slim_hidden_def (cairo_device_finish);
 void
 cairo_device_destroy (cairo_device_t *device)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_user_data_array_t user_data;
 
     if (device == NULL ||
 	CAIRO_REFERENCE_COUNT_IS_INVALID (&device->ref_count))
     {
+        CAIRO_TRACE_END (__func__);
 	return;
     }
 
     assert (CAIRO_REFERENCE_COUNT_HAS_REFERENCE (&device->ref_count));
-    if (! _cairo_reference_count_dec_and_test (&device->ref_count))
+    if (! _cairo_reference_count_dec_and_test (&device->ref_count)) {
+        CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     while (! cairo_list_is_empty (&device->shadow_caches)) {
 	cairo_shadow_cache_t *shadow;
@@ -365,6 +372,7 @@ cairo_device_destroy (cairo_device_t *device)
     device->backend->destroy (device);
 
     _cairo_user_data_array_fini (&user_data);
+    CAIRO_TRACE_END (__func__);
 
 }
 slim_hidden_def (cairo_device_destroy);

@@ -40,6 +40,7 @@
 
 #include "cairo-error-private.h"
 #include "cairo-region-private.h"
+#include "cairo-ttrace.h"
 
 /* XXX need to update pixman headers to be const as appropriate */
 #define CONST_CAST (pixman_region32_t *)
@@ -193,16 +194,20 @@ _cairo_region_fini (cairo_region_t *region)
 cairo_region_t *
 cairo_region_create (void)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_region_t *region;
 
     region = _cairo_malloc (sizeof (cairo_region_t));
-    if (region == NULL)
+    if (region == NULL) {
+	CAIRO_TRACE_END (__func__);
 	return (cairo_region_t *) &_cairo_region_nil;
+    }
 
     region->status = CAIRO_STATUS_SUCCESS;
     CAIRO_REFERENCE_COUNT_INIT (&region->ref_count, 1);
 
     pixman_region32_init (&region->rgn);
+    CAIRO_TRACE_END (__func__);
 
     return region;
 }
@@ -417,16 +422,22 @@ slim_hidden_def (cairo_region_reference);
 void
 cairo_region_destroy (cairo_region_t *region)
 {
-    if (region == NULL || CAIRO_REFERENCE_COUNT_IS_INVALID (&region->ref_count))
+    CAIRO_TRACE_BEGIN (__func__);
+    if (region == NULL || CAIRO_REFERENCE_COUNT_IS_INVALID (&region->ref_count)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     assert (CAIRO_REFERENCE_COUNT_HAS_REFERENCE (&region->ref_count));
 
-    if (! _cairo_reference_count_dec_and_test (&region->ref_count))
+    if (! _cairo_reference_count_dec_and_test (&region->ref_count)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     _cairo_region_fini (region);
     free (region);
+    CAIRO_TRACE_END (__func__);
 }
 slim_hidden_def (cairo_region_destroy);
 
@@ -700,11 +711,14 @@ cairo_status_t
 cairo_region_union_rectangle (cairo_region_t *dst,
 			      const cairo_rectangle_int_t *rectangle)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_status_t status = CAIRO_STATUS_SUCCESS;
     pixman_region32_t region;
 
-    if (dst->status)
+    if (dst->status) {
+	CAIRO_TRACE_END (__func__);
 	return dst->status;
+    }
 
     pixman_region32_init_rect (&region,
 			       rectangle->x, rectangle->y,
@@ -714,6 +728,7 @@ cairo_region_union_rectangle (cairo_region_t *dst,
 	status = _cairo_region_set_error (dst, CAIRO_STATUS_NO_MEMORY);
 
     pixman_region32_fini (&region);
+    CAIRO_TRACE_END (__func__);
 
     return status;
 }

@@ -130,7 +130,7 @@ cairo_gl_surface_create_for_texture (cairo_device_t *abstract_device,
  *
  * @param[in] abstract_surface        The given cairo_surface_t object
  *
- * @return the surface width or NULL on failure
+ * @return the surface width or 0 on failure
  *	The error value on failure can be retrieved with cairo_status().
  */
 
@@ -144,7 +144,7 @@ cairo_gl_surface_get_width (cairo_surface_t *abstract_surface);
  *
  * @param[in] abstract_surface         The given cairo_surface_t object
  *
- * @return the surface height or NULL on failure
+ * @return the surface height or 0 on failure
  *	The error value on failure can be retrieved with cairo_status().
  */
 

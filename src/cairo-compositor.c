@@ -40,6 +40,7 @@
 #include "cairo-compositor-private.h"
 #include "cairo-damage-private.h"
 #include "cairo-error-private.h"
+#include "cairo-ttrace.h"
 
 cairo_int_status_t
 _cairo_compositor_paint (const cairo_compositor_t	*compositor,
@@ -48,6 +49,7 @@ _cairo_compositor_paint (const cairo_compositor_t	*compositor,
 			 const cairo_pattern_t		*source,
 			 const cairo_clip_t		*clip)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_composite_rectangles_t extents;
     cairo_int_status_t status;
     cairo_bool_t initialized = TRUE;
@@ -66,8 +68,10 @@ _cairo_compositor_paint (const cairo_compositor_t	*compositor,
 							     surface,
 							     op, source,
 							     clip);
-    if (unlikely (status))
+    if (unlikely (status)) {
+        CAIRO_TRACE_END (__func__);
 	return status;
+    }
 
     do {
 	while (compositor->paint == NULL)
@@ -82,8 +86,10 @@ _cairo_compositor_paint (const cairo_compositor_t	*compositor,
 								 clip);
 	    initialized = TRUE;
 
-	    if (unlikely (status))
+	    if (unlikely (status)) {
+        	CAIRO_TRACE_END (__func__);
 		return status;
+	    }
 	}
 
 	status = compositor->paint (compositor, &extents);
@@ -102,6 +108,7 @@ _cairo_compositor_paint (const cairo_compositor_t	*compositor,
 
     _cairo_composite_rectangles_fini (&extents);
 
+    CAIRO_TRACE_END (__func__);
     return status;
 }
 
@@ -113,6 +120,7 @@ _cairo_compositor_mask (const cairo_compositor_t	*compositor,
 			const cairo_pattern_t		*mask,
 			const cairo_clip_t		*clip)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_composite_rectangles_t extents;
     cairo_int_status_t status;
     cairo_bool_t initialized = TRUE;
@@ -130,8 +138,10 @@ _cairo_compositor_mask (const cairo_compositor_t	*compositor,
 							    surface,
 							    op, source,
 							    mask, clip);
-    if (unlikely (status))
+    if (unlikely (status)) {
+	CAIRO_TRACE_END (__func__);
 	return status;
+    }
 
     do {
 	while (compositor->mask == NULL)
@@ -146,8 +156,10 @@ _cairo_compositor_mask (const cairo_compositor_t	*compositor,
 								mask, clip);
 	    initialized = TRUE;
 
-	    if (unlikely (status))
+	    if (unlikely (status)) {
+		CAIRO_TRACE_END (__func__);
 		return status;
+	    }
 	}
 
 	status = compositor->mask (compositor, &extents);
@@ -166,6 +178,7 @@ _cairo_compositor_mask (const cairo_compositor_t	*compositor,
 
     _cairo_composite_rectangles_fini (&extents);
 
+    CAIRO_TRACE_END (__func__);
     return status;
 }
 
@@ -182,14 +195,17 @@ _cairo_compositor_stroke (const cairo_compositor_t	*compositor,
 			  cairo_antialias_t		 antialias,
 			  const cairo_clip_t		*clip)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_composite_rectangles_t extents;
     cairo_int_status_t status;
     cairo_bool_t initialized = TRUE;
 
     TRACE ((stderr, "%s\n", __FUNCTION__));
 
-    if (_cairo_pen_vertices_needed (tolerance, style->line_width/2, ctm) <= 1)
+    if (_cairo_pen_vertices_needed (tolerance, style->line_width/2, ctm) <= 1) {
+	CAIRO_TRACE_END (__func__);
 	return CAIRO_INT_STATUS_NOTHING_TO_DO;
+    }
 
     if (compositor->lazy_init) {
 	status = _cairo_composite_rectangles_lazy_init_for_stroke (&extents,
@@ -205,8 +221,10 @@ _cairo_compositor_stroke (const cairo_compositor_t	*compositor,
 							      op, source,
 							      path, style,
 							      ctm, clip);
-    if (unlikely (status))
+    if (unlikely (status)) {
+	CAIRO_TRACE_END (__func__);
 	return status;
+    }
 
     do {
 	while (compositor->stroke == NULL)
@@ -225,8 +243,10 @@ _cairo_compositor_stroke (const cairo_compositor_t	*compositor,
 								  clip);
 	    initialized = TRUE;
 
-	    if (unlikely (status))
+	    if (unlikely (status)) {
+		CAIRO_TRACE_END (__func__);
 		return status;
+	    }
 	}
 
 	status = compositor->stroke (compositor, &extents,
@@ -247,6 +267,7 @@ _cairo_compositor_stroke (const cairo_compositor_t	*compositor,
 
     _cairo_composite_rectangles_fini (&extents);
 
+    CAIRO_TRACE_END (__func__);
     return status;
 }
 
@@ -261,6 +282,7 @@ _cairo_compositor_fill (const cairo_compositor_t	*compositor,
 			cairo_antialias_t		 antialias,
 			const cairo_clip_t		*clip)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_composite_rectangles_t extents;
     cairo_int_status_t status;
     cairo_bool_t initialized = TRUE;
@@ -279,8 +301,10 @@ _cairo_compositor_fill (const cairo_compositor_t	*compositor,
 							    surface,
 							    op, source,
 							    path, clip);
-    if (unlikely (status))
+    if (unlikely (status)) {
+	CAIRO_TRACE_END (__func__);
 	return status;
+    }
 
     do {
 	while (compositor->fill == NULL)
@@ -295,8 +319,10 @@ _cairo_compositor_fill (const cairo_compositor_t	*compositor,
 								path, clip);
 	    initialized = TRUE;
 
-	    if (unlikely (status))
+	    if (unlikely (status)) {
+		CAIRO_TRACE_END (__func__);
 		return status;
+	    }
 	}
 
 	status = compositor->fill (compositor, &extents,
@@ -316,6 +342,7 @@ _cairo_compositor_fill (const cairo_compositor_t	*compositor,
 
     _cairo_composite_rectangles_fini (&extents);
 
+    CAIRO_TRACE_END (__func__);
     return status;
 }
 
@@ -329,6 +356,7 @@ _cairo_compositor_glyphs (const cairo_compositor_t		*compositor,
 			  cairo_scaled_font_t			*scaled_font,
 			  const cairo_clip_t			*clip)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_composite_rectangles_t extents;
     cairo_bool_t overlap;
     cairo_int_status_t status;
@@ -349,8 +377,10 @@ _cairo_compositor_glyphs (const cairo_compositor_t		*compositor,
 							     scaled_font,
 							     glyphs, num_glyphs,
 							     clip, &overlap);
-    if (unlikely (status))
+    if (unlikely (status)) {
+	CAIRO_TRACE_END (__func__);
 	return status;
+    }
 
     do {
 	while (compositor->glyphs == NULL)
@@ -366,8 +396,10 @@ _cairo_compositor_glyphs (const cairo_compositor_t		*compositor,
 								 clip, &overlap);
 	    initialized = TRUE;
 
-	    if (unlikely (status))
+	    if (unlikely (status)) {
+		CAIRO_TRACE_END (__func__);
 		return status;
+	    }
 	}
 
 	status = compositor->glyphs (compositor, &extents,
@@ -387,5 +419,6 @@ _cairo_compositor_glyphs (const cairo_compositor_t		*compositor,
 
     _cairo_composite_rectangles_fini (&extents);
 
+    CAIRO_TRACE_END (__func__);
     return status;
 }

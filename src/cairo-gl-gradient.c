@@ -290,7 +290,7 @@ _cairo_gl_gradient_create (cairo_gl_context_t           *ctx,
 
     ctx->dispatch.TexImage2D (ctx->tex_target, 0, internal_format,
 			      tex_width, 1, 0,
-		  GL_BGRA, GL_UNSIGNED_BYTE, data);
+			      GL_BGRA, GL_UNSIGNED_BYTE, data);
 
     free (data);
 

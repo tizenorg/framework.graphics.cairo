@@ -13,6 +13,7 @@ AC_CONFIG_HEADERS(config.h)
 
 AM_INIT_AUTOMAKE([1.11 foreign -Wall no-define no-dist-gzip dist-xz])
 AM_SILENT_RULES([yes])
+m4_ifdef([AM_PROG_AR], [AM_PROG_AR]) dnl Workaround for Automake 1.12
 
 # Initialize libtool
 LT_PREREQ([2.2])
@@ -48,6 +49,16 @@ AC_CHECK_LIB(z, compress,
 	 ],
 	 [have_libz="no (requires zlib http://www.gzip.org/zlib/)"])],
 	 [have_libz="no (requires zlib http://www.gzip.org/zlib/)"])
+
+AC_CHECK_LIB(ttrace, traceBegin,
+	 [AC_CHECK_HEADER(ttrace.h, [
+	  have_ttrace=yes
+	  AC_DEFINE(HAVE_TTRACE, 1, [Define to 1 if you have ttrace available])
+	  ttrace_LIBS="-lttrace"
+	 ],
+	 [have_ttrace="no (requires ttrace)"])],
+	 [have_ttrace="no (requires ttraec)"])
+LIBS="$ttrace_LIBS $LIBS"
 
 save_LIBS="$LIBS"
 AC_CHECK_LIB(lzo2, lzo2a_decompress,
@@ -841,6 +852,12 @@ CAIRO_ENABLE(trace, cairo-trace, auto, [
 		"x$have_dlsym" != "xyes"; then
 		use_trace="no (requires dynamic linker and zlib and real pthreads)"
 	fi
+])
+
+CAIRO_ENABLE(ttrace, cairo-ttrace, no, [
+        if test "x$have_ttrace" != "xyes"; then
+                use_ttrace="no (requires ttrace)"
+        fi
 ])
 
 CAIRO_ENABLE(interpreter, cairo-script-interpreter, yes, [

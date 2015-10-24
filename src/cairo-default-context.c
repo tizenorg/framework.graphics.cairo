@@ -49,6 +49,7 @@
 #include "cairo-freed-pool-private.h"
 #include "cairo-path-private.h"
 #include "cairo-pattern-private.h"
+#include "cairo-ttrace.h"
 
 #define CAIRO_TOLERANCE_MINIMUM	_cairo_fixed_to_double(1)
 
@@ -88,6 +89,7 @@ _cairo_default_context_fini (cairo_default_context_t *cr)
 static void
 _cairo_default_context_destroy (void *abstract_cr)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_default_context_t *cr = abstract_cr;
 
     _cairo_default_context_fini (cr);
@@ -95,6 +97,7 @@ _cairo_default_context_destroy (void *abstract_cr)
     /* mark the context as invalid to protect against misuse */
     cr->base.status = CAIRO_STATUS_NULL_POINTER;
     _freed_pool_put (&context_pool, cr);
+    CAIRO_TRACE_END (__func__);
 }
 
 static cairo_surface_t *
@@ -287,13 +290,16 @@ _current_source_matches_solid (const cairo_pattern_t *pattern,
 static cairo_status_t
 _cairo_default_context_set_source_rgba (void *abstract_cr, double red, double green, double blue, double alpha)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_default_context_t *cr = abstract_cr;
     cairo_pattern_t *pattern;
     cairo_status_t status;
 
     if (_current_source_matches_solid (cr->gstate->source,
-				       red, green, blue, alpha))
+				       red, green, blue, alpha)) {
+        CAIRO_TRACE_END (__func__);
 	return CAIRO_STATUS_SUCCESS;
+    }
 
     /* push the current pattern to the freed lists */
     _cairo_default_context_set_source (cr, (cairo_pattern_t *) &_cairo_pattern_black);
@@ -302,12 +308,14 @@ _cairo_default_context_set_source_rgba (void *abstract_cr, double red, double gr
     if (unlikely (pattern->status)) {
         status = pattern->status;
         cairo_pattern_destroy (pattern);
+        CAIRO_TRACE_END (__func__);
         return pattern->status;
     }
 
     status = _cairo_default_context_set_source (cr, pattern);
     cairo_pattern_destroy (pattern);
 
+    CAIRO_TRACE_END (__func__);
     return status;
 }
 
@@ -957,9 +965,12 @@ _cairo_default_context_append_path (void *abstract_cr,
 static cairo_status_t
 _cairo_default_context_paint (void *abstract_cr)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_default_context_t *cr = abstract_cr;
 
-    return _cairo_gstate_paint (cr->gstate);
+    cairo_status_t status = _cairo_gstate_paint (cr->gstate);
+    CAIRO_TRACE_END (__func__);
+    return status;
 }
 
 static cairo_status_t
@@ -1532,21 +1543,26 @@ _cairo_default_context_init (cairo_default_context_t *cr, void *target)
 cairo_t *
 _cairo_default_context_create (void *target)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_default_context_t *cr;
     cairo_status_t status;
 
     cr = _freed_pool_get (&context_pool);
     if (unlikely (cr == NULL)) {
 	cr = malloc (sizeof (cairo_default_context_t));
-	if (unlikely (cr == NULL))
+	if (unlikely (cr == NULL)) {
+	    CAIRO_TRACE_END (__func__);
 	    return _cairo_create_in_error (_cairo_error (CAIRO_STATUS_NO_MEMORY));
+	}
     }
 
     status = _cairo_default_context_init (cr, target);
     if (unlikely (status)) {
 	_freed_pool_put (&context_pool, cr);
+	CAIRO_TRACE_END (__func__);
 	return _cairo_create_in_error (status);
     }
 
+    CAIRO_TRACE_END (__func__);
     return &cr->base;
 }

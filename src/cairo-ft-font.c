@@ -1154,7 +1154,7 @@ _get_bitmap_surface (FT_Bitmap		     *bitmap,
 		dest = data;
 		for (i = height; i; i--) {
 		    memcpy (dest, source, bitmap->pitch);
-		    memset (dest + bitmap->pitch, '\0', stride - bitmap->pitch);
+		    memset (dest + bitmap->pitch,'\0', stride-bitmap->pitch);
 
 		    source += bitmap->pitch;
 		    dest += stride;
@@ -1210,26 +1210,26 @@ _get_bitmap_surface (FT_Bitmap		     *bitmap,
 					assert (own_buffer != 0);
 					assert (bitmap->pixel_mode != FT_PIXEL_MODE_GRAY);
 
-					data = bitmap->buffer;
-					stride = bitmap->pitch;
-					format = CAIRO_FORMAT_ARGB32;
+	    data = bitmap->buffer;
+	    stride = bitmap->pitch;
+	    format = CAIRO_FORMAT_ARGB32;
 			}
 	}
 	break;
 	// color font
     case FT_PIXEL_MODE_BGRA:
 		stride = bitmap->pitch;
-		if (own_buffer) {
-			data = bitmap->buffer;
-		} else {
-			data = _cairo_malloc_ab (height, stride);
-			if (!data)
+	if (own_buffer) {
+		data = bitmap->buffer;
+	} else {
+		data = _cairo_malloc_ab (height, stride);
+		if (!data)
 			return _cairo_error (CAIRO_STATUS_NO_MEMORY);
 
-			memcpy (data, bitmap->buffer, stride * height);
+		memcpy (data, bitmap->buffer, stride * height);
 		}
 
-		format = CAIRO_FORMAT_ARGB32;
+	format = CAIRO_FORMAT_ARGB32;
 		component_alpha = FALSE;
 	break;
     case FT_PIXEL_MODE_GRAY2:
@@ -2191,10 +2191,10 @@ _cairo_ft_scaled_glyph_init (void			*abstract_font,
 	vertical_layout = TRUE;
     }
 
-	#ifdef FT_LOAD_COLOR
+    #ifdef FT_LOAD_COLOR
 		/*Color-glyph support */
-		load_flags |= FT_LOAD_COLOR;
-	#endif
+    load_flags |= FT_LOAD_COLOR;
+    #endif
 
     error = FT_Load_Glyph (face,
 			   _cairo_scaled_glyph_index(scaled_glyph),

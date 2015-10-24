@@ -562,11 +562,10 @@ _cairo_gl_subsurface_operand_init (cairo_gl_operand_t *operand,
 	    operand->texture.p2.x = (double) blur_extents.width / (double) blur_surface->width;
 	    operand->texture.p2.y = (double) blur_extents.height / (double) blur_surface->height;
 
-		operand->texture.p1.x += 0.5 / blur_surface->width;
-		operand->texture.p1.y += 0.5 / blur_surface->height;
-		operand->texture.p2.x -= 0.5 / blur_surface->width;
-		operand->texture.p2.y -= 0.5 / blur_surface->height;
-
+	    operand->texture.p1.x += 0.5 / blur_surface->width;
+	    operand->texture.p1.y += 0.5 / blur_surface->height;
+	    operand->texture.p2.x -= 0.5 / blur_surface->width;
+	    operand->texture.p2.y -= 0.5 / blur_surface->height;
 
 	    operand->texture.surface = blur_surface;
 	    operand->texture.owns_surface = NULL;
@@ -597,11 +596,10 @@ _cairo_gl_subsurface_operand_init (cairo_gl_operand_t *operand,
 	operand->texture.p2.x = image_node->p2.x;
 	operand->texture.p2.y = image_node->p2.y;
 
-	    operand->texture.p1.x += 0.5 / ctx->image_cache->surface->width;
-	    operand->texture.p1.y += 0.5 / ctx->image_cache->surface->height;
-	    operand->texture.p2.x -= 0.5 / ctx->image_cache->surface->width;
-	    operand->texture.p2.y -= 0.5 / ctx->image_cache->surface->height;
-
+	operand->texture.p1.x += 0.5 / ctx->image_cache->surface->width;
+	operand->texture.p1.y += 0.5 / ctx->image_cache->surface->height;
+	operand->texture.p2.x -= 0.5 / ctx->image_cache->surface->width;
+	operand->texture.p2.y -= 0.5 / ctx->image_cache->surface->height;
 
 	cairo_matrix_multiply (&attributes->matrix,
 			       &matrix,
@@ -703,11 +701,10 @@ _cairo_gl_surface_operand_init (cairo_gl_operand_t *operand,
 	    operand->texture.p2.x = (double) blur_extents.width / (double) blur_surface->width;
 	    operand->texture.p2.y = (double) blur_extents.height / (double) blur_surface->height;
 
-		operand->texture.p1.x += 0.5 / blur_surface->width;
-		operand->texture.p1.y += 0.5 / blur_surface->height;
-		operand->texture.p2.x -= 0.5 / blur_surface->width;
-		operand->texture.p2.y -= 0.5 / blur_surface->height;
-
+	    operand->texture.p1.x += 0.5 / blur_surface->width;
+	    operand->texture.p1.y += 0.5 / blur_surface->height;
+	    operand->texture.p2.x -= 0.5 / blur_surface->width;
+	    operand->texture.p2.y -= 0.5 / blur_surface->height;
 
 	    operand->texture.surface = blur_surface;
 	    operand->texture.owns_surface = NULL;
@@ -733,11 +730,10 @@ _cairo_gl_surface_operand_init (cairo_gl_operand_t *operand,
 	operand->texture.p2.x = image_node->p2.x;
 	operand->texture.p2.y = image_node->p2.y;
 
-	    operand->texture.p1.x += 0.5 / ctx->image_cache->surface->width;
-	    operand->texture.p1.y += 0.5 / ctx->image_cache->surface->height;
-	    operand->texture.p2.x -= 0.5 / ctx->image_cache->surface->width;
-	    operand->texture.p2.y -= 0.5 / ctx->image_cache->surface->height;
-
+	operand->texture.p1.x += 0.5 / ctx->image_cache->surface->width;
+	operand->texture.p1.y += 0.5 / ctx->image_cache->surface->height;
+	operand->texture.p2.x -= 0.5 / ctx->image_cache->surface->width;
+	operand->texture.p2.y -= 0.5 / ctx->image_cache->surface->height;
 
 	operand->texture.surface = ctx->image_cache->surface;
 	operand->texture.owns_surface = NULL;

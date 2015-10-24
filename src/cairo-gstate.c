@@ -44,6 +44,7 @@
 #include "cairo-gstate-private.h"
 #include "cairo-pattern-private.h"
 #include "cairo-traps-private.h"
+#include "cairo-ttrace.h"
 
 #if _XOPEN_SOURCE >= 600 || defined (_ISOC99_SOURCE)
 #define ISFINITE(x) isfinite (x)
@@ -105,6 +106,7 @@ cairo_status_t
 _cairo_gstate_init (cairo_gstate_t  *gstate,
 		    cairo_surface_t *target)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     VG (VALGRIND_MAKE_MEM_UNDEFINED (gstate, sizeof (cairo_gstate_t)));
 
     gstate->next = NULL;
@@ -151,6 +153,7 @@ _cairo_gstate_init (cairo_gstate_t  *gstate,
     /* Now that the gstate is fully initialized and ready for the eventual
      * _cairo_gstate_fini(), we can check for errors (and not worry about
      * the resource deallocation). */
+    CAIRO_TRACE_END (__func__);
     return target->status;
 }
 
@@ -217,6 +220,7 @@ _cairo_gstate_init_copy (cairo_gstate_t *gstate, cairo_gstate_t *other)
 void
 _cairo_gstate_fini (cairo_gstate_t *gstate)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     _cairo_stroke_style_fini (&gstate->stroke_style);
 
     cairo_font_face_destroy (gstate->font_face);
@@ -246,6 +250,7 @@ _cairo_gstate_fini (cairo_gstate_t *gstate)
 
     memset (&gstate->shadow, 0, sizeof (cairo_shadow_t));
 
+    CAIRO_TRACE_END (__func__);
     VG (VALGRIND_MAKE_MEM_NOACCESS (gstate, sizeof (cairo_gstate_t)));
 }
 
@@ -416,14 +421,18 @@ cairo_status_t
 _cairo_gstate_set_source (cairo_gstate_t  *gstate,
 			  cairo_pattern_t *source)
 {
-    if (source->status)
+    CAIRO_TRACE_BEGIN (__func__);
+    if (source->status) {
+        CAIRO_TRACE_END (__func__);
 	return source->status;
+    }
 
     source = cairo_pattern_reference (source);
     cairo_pattern_destroy (gstate->source);
     gstate->source = source;
     gstate->source_ctm_inverse = gstate->ctm_inverse;
 
+    CAIRO_TRACE_END (__func__);
     return CAIRO_STATUS_SUCCESS;
 }
 
@@ -1065,6 +1074,7 @@ _cairo_gstate_get_pattern_status (const cairo_pattern_t *pattern)
 cairo_status_t
 _cairo_gstate_paint (cairo_gstate_t *gstate)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_pattern_union_t source_pattern;
     const cairo_pattern_t *pattern;
     cairo_status_t status;
@@ -1072,14 +1082,20 @@ _cairo_gstate_paint (cairo_gstate_t *gstate)
     cairo_bool_t destroy_pattern = FALSE;
 
     status = _cairo_gstate_get_pattern_status (gstate->source);
-    if (unlikely (status))
+    if (unlikely (status)) {
+	CAIRO_TRACE_END (__func__);
 	return status;
+    }
 
-    if (gstate->op == CAIRO_OPERATOR_DEST)
+    if (gstate->op == CAIRO_OPERATOR_DEST) {
+	CAIRO_TRACE_END (__func__);
 	return CAIRO_STATUS_SUCCESS;
+    }
 
-    if (_cairo_clip_is_all_clipped (gstate->clip))
+    if (_cairo_clip_is_all_clipped (gstate->clip)) {
+	CAIRO_TRACE_END (__func__);
 	return CAIRO_STATUS_SUCCESS;
+    }
 
     if (gstate->source->filter == CAIRO_FILTER_GAUSSIAN)
 	status = _cairo_pattern_create_gaussian_matrix (gstate->source, 1024);
@@ -1107,7 +1123,7 @@ _cairo_gstate_paint (cairo_gstate_t *gstate)
 				   gstate->clip);
     if (destroy_pattern)
 	cairo_pattern_destroy ((cairo_pattern_t *)pattern);
-
+    CAIRO_TRACE_END (__func__);
     return status;
 }
 
@@ -1115,6 +1131,7 @@ cairo_status_t
 _cairo_gstate_mask (cairo_gstate_t  *gstate,
 		    cairo_pattern_t *mask)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_pattern_union_t source_pattern, mask_pattern;
     const cairo_pattern_t *source;
     cairo_operator_t op;
@@ -1122,12 +1139,16 @@ _cairo_gstate_mask (cairo_gstate_t  *gstate,
     cairo_bool_t destroy_pattern = FALSE;
 
     status = _cairo_gstate_get_pattern_status (mask);
-    if (unlikely (status))
+    if (unlikely (status)) {
+	CAIRO_TRACE_END (__func__);
 	return status;
+    }
 
     status = _cairo_gstate_get_pattern_status (gstate->source);
-    if (unlikely (status))
+    if (unlikely (status)) {
+	CAIRO_TRACE_END (__func__);
 	return status;
+     }
 
     if (gstate->source->filter == CAIRO_FILTER_GAUSSIAN)
 	status = _cairo_pattern_create_gaussian_matrix (gstate->source, 1024);
@@ -1135,20 +1156,27 @@ _cairo_gstate_mask (cairo_gstate_t  *gstate,
     if (mask->filter == CAIRO_FILTER_GAUSSIAN)
 	status = _cairo_pattern_create_gaussian_matrix (mask, 1024);
 
-    if (gstate->op == CAIRO_OPERATOR_DEST)
+    if (gstate->op == CAIRO_OPERATOR_DEST) {
+	CAIRO_TRACE_END (__func__);
 	return CAIRO_STATUS_SUCCESS;
+    }
 
-    if (_cairo_clip_is_all_clipped (gstate->clip))
+    if (_cairo_clip_is_all_clipped (gstate->clip)) {
+	CAIRO_TRACE_END (__func__);
 	return CAIRO_STATUS_SUCCESS;
+    }
 
     assert (gstate->opacity == 1.0);
 
-    if (_cairo_pattern_is_opaque (mask, NULL))
+    if (_cairo_pattern_is_opaque (mask, NULL)) {
+	CAIRO_TRACE_END (__func__);
 	return _cairo_gstate_paint (gstate);
+    }
 
     if (_cairo_pattern_is_clear (mask) &&
 	_cairo_operator_bounded_by_mask (gstate->op))
     {
+	CAIRO_TRACE_END (__func__);
 	return CAIRO_STATUS_SUCCESS;
     }
 
@@ -1209,33 +1237,43 @@ _cairo_gstate_mask (cairo_gstate_t  *gstate,
     if (destroy_pattern)
 	cairo_pattern_destroy ((cairo_pattern_t *)source);
 
+    CAIRO_TRACE_END (__func__);
     return status;
 }
 
 cairo_status_t
 _cairo_gstate_stroke (cairo_gstate_t *gstate, cairo_path_fixed_t *path)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_pattern_union_t source_pattern;
     cairo_stroke_style_t style;
     double dash[2];
     cairo_status_t status;
 
     status = _cairo_gstate_get_pattern_status (gstate->source);
-    if (unlikely (status))
+    if (unlikely (status)) {
+	CAIRO_TRACE_END (__func__);
 	return status;
+    }
 
     if (gstate->source->filter == CAIRO_FILTER_GAUSSIAN)
 	status = _cairo_pattern_create_gaussian_matrix (gstate->source,
 							gstate->stroke_style.line_width);
 
-    if (gstate->op == CAIRO_OPERATOR_DEST)
+    if (gstate->op == CAIRO_OPERATOR_DEST) {
+	CAIRO_TRACE_END (__func__);
 	return CAIRO_STATUS_SUCCESS;
+    }
 
-    if (gstate->stroke_style.line_width <= 0.0)
+    if (gstate->stroke_style.line_width <= 0.0) {
+	CAIRO_TRACE_END (__func__);
 	return CAIRO_STATUS_SUCCESS;
+    }
 
-    if (_cairo_clip_is_all_clipped (gstate->clip))
+    if (_cairo_clip_is_all_clipped (gstate->clip)) {
+	CAIRO_TRACE_END (__func__);
 	return CAIRO_STATUS_SUCCESS;
+    }
 
     assert (gstate->opacity == 1.0);
 
@@ -1254,7 +1292,7 @@ _cairo_gstate_stroke (cairo_gstate_t *gstate, cairo_path_fixed_t *path)
     if (_cairo_gstate_has_shadow (gstate))
 	source_pattern.base.shadow = gstate->shadow;
 
-    return _cairo_surface_stroke (gstate->target,
+    status = _cairo_surface_stroke (gstate->target,
 				  gstate->op,
 				  &source_pattern.base,
 				  path,
@@ -1264,6 +1302,8 @@ _cairo_gstate_stroke (cairo_gstate_t *gstate, cairo_path_fixed_t *path)
 				  gstate->tolerance,
 				  gstate->antialias,
 				  gstate->clip);
+    CAIRO_TRACE_END (__func__);
+    return status;
 }
 
 cairo_status_t
@@ -1273,6 +1313,7 @@ _cairo_gstate_in_stroke (cairo_gstate_t	    *gstate,
 			 double		     y,
 			 cairo_bool_t	    *inside_ret)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_status_t status;
     cairo_rectangle_int_t extents;
     cairo_box_t limit;
@@ -1280,6 +1321,7 @@ _cairo_gstate_in_stroke (cairo_gstate_t	    *gstate,
 
     if (gstate->stroke_style.line_width <= 0.0) {
 	*inside_ret = FALSE;
+	CAIRO_TRACE_END (__func__);
 	return CAIRO_STATUS_SUCCESS;
     }
 
@@ -1296,6 +1338,7 @@ _cairo_gstate_in_stroke (cairo_gstate_t	    *gstate,
 	y < extents.y || y > extents.y + extents.height)
     {
 	*inside_ret = FALSE;
+	CAIRO_TRACE_END (__func__);
 	return CAIRO_STATUS_SUCCESS;
     }
 
@@ -1321,34 +1364,44 @@ _cairo_gstate_in_stroke (cairo_gstate_t	    *gstate,
 BAIL:
     _cairo_traps_fini (&traps);
 
+    CAIRO_TRACE_END (__func__);
     return status;
 }
 
 cairo_status_t
 _cairo_gstate_fill (cairo_gstate_t *gstate, cairo_path_fixed_t *path)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_status_t status;
     const cairo_pattern_t *pattern;
     cairo_bool_t destroy_pattern = FALSE;
 
     status = _cairo_gstate_get_pattern_status (gstate->source);
-    if (unlikely (status))
+    if (unlikely (status)) {
+        CAIRO_TRACE_END (__func__);
 	return status;
+    }
 
     if (gstate->source->filter == CAIRO_FILTER_GAUSSIAN)
 	status = _cairo_pattern_create_gaussian_matrix (gstate->source, 1024);
 
-    if (gstate->op == CAIRO_OPERATOR_DEST)
+    if (gstate->op == CAIRO_OPERATOR_DEST) {
+        CAIRO_TRACE_END (__func__);
 	return CAIRO_STATUS_SUCCESS;
+    }
 
-    if (_cairo_clip_is_all_clipped (gstate->clip))
+    if (_cairo_clip_is_all_clipped (gstate->clip)) {
+        CAIRO_TRACE_END (__func__);
 	return CAIRO_STATUS_SUCCESS;
+    }
 
     assert (gstate->opacity == 1.0);
 
     if (_cairo_path_fixed_fill_is_empty (path)) {
-	if (_cairo_operator_bounded_by_mask (gstate->op))
+	if (_cairo_operator_bounded_by_mask (gstate->op)) {
+            CAIRO_TRACE_END (__func__);
 	    return CAIRO_STATUS_SUCCESS;
+	}
 
 	pattern = &_cairo_pattern_clear.base;
 	status = _cairo_surface_paint (gstate->target,
@@ -1405,6 +1458,7 @@ _cairo_gstate_fill (cairo_gstate_t *gstate, cairo_path_fixed_t *path)
     if (destroy_pattern)
 	cairo_pattern_destroy ((cairo_pattern_t *)pattern);
 
+    CAIRO_TRACE_END (__func__);
     return status;
 }
 

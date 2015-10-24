@@ -1051,15 +1051,15 @@ composite_one_glyph (void				*_dst,
 
 	if (glyph_surface->format != CAIRO_FORMAT_ARGB32 ||
 		pixman_image_get_component_alpha (glyph_surface->pixman_image))
-		pixman_image_composite32 (_pixman_operator (op),
-								((cairo_image_source_t *)_src)->pixman_image,
-								glyph_surface->pixman_image,
-								to_pixman_image (_dst),
-								x + src_x,  y + src_y,
-								0, 0,
-								x - dst_x, y - dst_y,
-								glyph_surface->width,
-								glyph_surface->height);
+    pixman_image_composite32 (_pixman_operator (op),
+			      ((cairo_image_source_t *)_src)->pixman_image,
+			      glyph_surface->pixman_image,
+			      to_pixman_image (_dst),
+			      x + src_x,  y + src_y,
+			      0, 0,
+			      x - dst_x, y - dst_y,
+			      glyph_surface->width,
+			      glyph_surface->height);
 	else /* color glyph */
 		pixman_image_composite32 (_pixman_operator (op),
 								glyph_surface->pixman_image,
@@ -1324,21 +1324,21 @@ composite_glyphs (void				*_dst,
 			       glyph_surface->base.device_transform.y0);
 
 	if (glyph_surface->format != CAIRO_FORMAT_ARGB32 ||
-		pixman_image_get_component_alpha (glyph_surface->pixman_image))
-		    pixman_image_composite32 (op, src, glyph_surface->pixman_image, dst,
+pixman_image_get_component_alpha (glyph_surface->pixman_image))
+	    pixman_image_composite32 (op, src, glyph_surface->pixman_image, dst,
                                       x + src_x,  y + src_y,
                                       0, 0,
-									x - dst_x, y - dst_y,
-									glyph_surface->width,
-									glyph_surface->height);
+                                      x - dst_x, y - dst_y,
+				      glyph_surface->width,
+				      glyph_surface->height);
 	else /* Color glyph. */
-			pixman_image_composite32 (op, glyph_surface->pixman_image, NULL, dst,
-									0, 0,
-									x + src_x,  y + src_y,
-									x - dst_x, y - dst_y,
-									glyph_surface->width,
-									glyph_surface->height);
-		}
+	  pixman_image_composite32 (op, glyph_surface->pixman_image, NULL, dst,
+                                      0, 0,
+                                      x + src_x,  y + src_y,
+                                      x - dst_x, y - dst_y,
+				      glyph_surface->width,
+				      glyph_surface->height);
+	}
     }
 
 out_thaw:

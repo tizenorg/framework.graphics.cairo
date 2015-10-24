@@ -179,7 +179,7 @@ static cairo_status_t
 cairo_gl_context_get_glyph_cache (cairo_gl_context_t *ctx,
 				  cairo_format_t format,
 				cairo_bool_t has_component_alpha,
-                 cairo_gl_glyph_cache_t **cache_out)
+                                  cairo_gl_glyph_cache_t **cache_out)
 {
     cairo_gl_glyph_cache_t *cache;
     cairo_content_t content;
@@ -190,12 +190,11 @@ cairo_gl_context_get_glyph_cache (cairo_gl_context_t *ctx,
     case CAIRO_FORMAT_ARGB32:
     case CAIRO_FORMAT_RGB24:
 		if (has_component_alpha) {
-			cache = &ctx->glyph_cache[0];
+	cache = &ctx->glyph_cache[0];
 		} else {
 			cache = &ctx->glyph_cache[2];
 		}
         content = CAIRO_CONTENT_COLOR_ALPHA;
-		break;
 	break;
     case CAIRO_FORMAT_A8:
     case CAIRO_FORMAT_A1:
@@ -350,7 +349,7 @@ render_glyphs (cairo_gl_surface_t *dst,
 		_cairo_gl_composite_set_source_operand (&setup, &cache->surface->operand);
 		*is_color_glyph = TRUE;
 	} else {
-		_cairo_gl_composite_set_mask_operand (&setup, &cache->surface->operand);
+	    _cairo_gl_composite_set_mask_operand (&setup, &cache->surface->operand);
 		*is_color_glyph = FALSE;
 	}
 
@@ -455,7 +454,7 @@ render_glyphs_via_mask (cairo_gl_surface_t *dst,
     }
 
     /* Create the mask if it has not yet been initialized or it was too small and deleted above. */
-    if (! ctx->glyph_mask) {
+    if(!ctx->glyph_mask) {
 	width = MAX (width, info->extents.width);
 	height = MAX (height, info->extents.height);
 	/* XXX: For non-CA, this should be CAIRO_CONTENT_ALPHA to save memory */
@@ -522,10 +521,10 @@ render_glyphs_via_mask (cairo_gl_surface_t *dst,
 				}
 		}
 	else
-		status = _cairo_surface_mask (&dst->base, op,
+	status = _cairo_surface_mask (&dst->base, op,
 		                      &source_pattern.base,
-							&mask_pattern.base,
-							clip);
+				      &mask_pattern.base,
+				      clip);
 
 	_cairo_clip_destroy (clip);
 

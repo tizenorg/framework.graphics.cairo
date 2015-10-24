@@ -717,6 +717,15 @@ enabled_cairo_cxx_sources += $(cairo_trace_cxx_sources)
 enabled_cairo_sources += $(cairo_trace_sources)
 endif
 
+all_cairo_private += $(cairo_ttrace_private) $(cairo_ttrace_headers)
+all_cairo_cxx_sources += $(cairo_ttrace_cxx_sources)
+all_cairo_sources += $(cairo_ttrace_sources)
+ifeq ($(CAIRO_HAS_TTRACE),1)
+enabled_cairo_private += $(cairo_ttrace_private) $(cairo_ttrace_headers)
+enabled_cairo_cxx_sources += $(cairo_ttrace_cxx_sources)
+enabled_cairo_sources += $(cairo_ttrace_sources)
+endif
+
 all_cairo_private += $(cairo_interpreter_private) $(cairo_interpreter_headers)
 all_cairo_cxx_sources += $(cairo_interpreter_cxx_sources)
 all_cairo_sources += $(cairo_interpreter_sources)

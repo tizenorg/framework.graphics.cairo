@@ -44,8 +44,8 @@
 #if CAIRO_HAS_DLSYM
 #include <dlfcn.h>
 #endif
-
 #include "cairo-evas-gl.h"
+#include "cairo-ttrace.h"
 
 typedef struct _cairo_evas_gl_context {
     cairo_gl_context_t base;
@@ -168,7 +168,11 @@ _cairo_evas_gl_get_proc_addr (void *data, const char *name)
 	{ offsetof (Evas_GL_API, glRenderbufferStorage	), "glRenderbufferStorage" },
 	{ offsetof (Evas_GL_API, glFramebufferRenderbuffer), "glFramebufferRenderbuffer" },
 	{ offsetof (Evas_GL_API, glDeleteRenderbuffers	), "glDeleteRenderbuffers" },
-	/* multisampling functions, none supported in efl-1.12.0 */
+	/* multisampling functions */
+	{ offsetof (Evas_GL_API, glFramebufferTexture2DMultisampleEXT	), "glFramebufferTexture2DMultisampleEXT" },
+	{ offsetof (Evas_GL_API, glRenderbufferStorageMultisampleEXT	), "glRenderbufferStorageMultisampleEXT" },
+	{ offsetof (Evas_GL_API, glFramebufferTexture2DMultisampleIMG	), "glFramebufferTexture2DMultisampleIMG" },
+	{ offsetof (Evas_GL_API, glRenderbufferStorageMultisampleIMG	), "glRenderbufferStorageMultisampleIMG" },
 	{ 0, NULL }
     };
 
@@ -218,8 +222,13 @@ _evas_gl_acquire (void *abstract_ctx)
     if (!_context_acquisition_changed_evas_gl_state (ctx, current_surface))
 	return;
 
-    _cairo_gl_context_reset (&ctx->base);
+    /* If current context is not cairo-gl context, some problem can be occurred at gl API
+       in _cairo_gl_context_reset() when it is called before eglMakeCurrent().
+       So, _cairo_gl_context_reset() should be moved after eglMakeCurrent(). (2015-9-15)*/
+
+    //_cairo_gl_context_reset (&ctx->base);
     evas_gl_make_current (ctx->evas_gl, current_surface, ctx->context);
+    _cairo_gl_context_reset (&ctx->base);
 
     ctx->current_surface = current_surface;
     //ctx->base.current_target = &ctx->dummy_surface->base;
@@ -302,7 +311,7 @@ cairo_evas_gl_device_create (Evas_GL *evas_gl,
     ctx->dummy_surface = evas_gl_pbuffer_surface_create (ctx->evas_gl,
 							 evas_cfg,
 							 1, 1, NULL);
-    //evas_gl_config_free (evas_cfg);
+    evas_gl_config_free (evas_cfg);
 
     if (ctx->dummy_surface == NULL) {
         free (ctx);
@@ -348,30 +357,41 @@ cairo_gl_surface_create_for_evas_gl (cairo_device_t	*device,
 				     int		 width,
 				     int		 height)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_evas_gl_surface_t *surface;
 
 	if ((! device)||(cairo_device_status(device)!= CAIRO_STATUS_SUCCESS)){
 		fprintf (stderr, "cairo_gl_surface_create_for_evas_gl(): cairo device is NULL or not available\n");
+	CAIRO_TRACE_END (__func__);
 	return _cairo_surface_create_in_error(CAIRO_STATUS_NULL_POINTER);
 	}
 
-    if (unlikely (device->status))
+    if (unlikely (device->status)) {
+	CAIRO_TRACE_END (__func__);
 	return _cairo_surface_create_in_error (device->status);
+    }
 
 	if (! evas_surface || ! evas_config) {
 		fprintf (stderr, "cairo_gl_surface_create_for_evas_gl(): evas_surface or evas_config is NULL\n");
-	return _cairo_surface_create_in_error (CAIRO_STATUS_NULL_POINTER);
+	    CAIRO_TRACE_END (__func__);
+	    return _cairo_surface_create_in_error (CAIRO_STATUS_NULL_POINTER);
 	}
 
-    if (device->backend->type != CAIRO_DEVICE_TYPE_GL)
+    if (device->backend->type != CAIRO_DEVICE_TYPE_GL) {
+	CAIRO_TRACE_END (__func__);
 	return _cairo_surface_create_in_error (_cairo_error (CAIRO_STATUS_SURFACE_TYPE_MISMATCH));
+    }
 
-    if (width <= 0 || height <= 0)
+    if (width <= 0 || height <= 0) {
+	CAIRO_TRACE_END (__func__);
         return _cairo_surface_create_in_error (_cairo_error (CAIRO_STATUS_INVALID_SIZE));
+    }
 
     surface = calloc (1, sizeof (cairo_evas_gl_surface_t));
-    if (unlikely (surface == NULL))
+    if (unlikely (surface == NULL)) {
+	CAIRO_TRACE_END (__func__);
 	return _cairo_surface_create_in_error (_cairo_error (CAIRO_STATUS_NO_MEMORY));
+    }
 
     _cairo_gl_surface_init (device, &surface->base,
 			    CAIRO_CONTENT_COLOR_ALPHA, width, height);
@@ -389,6 +409,7 @@ cairo_gl_surface_create_for_evas_gl (cairo_device_t	*device,
 
     surface->surface = evas_surface;
 
+    CAIRO_TRACE_END (__func__);
     return &surface->base.base;
 }
 

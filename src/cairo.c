@@ -49,6 +49,7 @@
 #include "cairo-surface-backend-private.h"
 
 #include <assert.h>
+#include "cairo-ttrace.h"
 
 /**
  * SECTION:cairo
@@ -224,15 +225,24 @@ _cairo_create_in_error (cairo_status_t status)
 cairo_t *
 cairo_create (cairo_surface_t *target)
 {
-    if (unlikely (target == NULL))
+    CAIRO_TRACE_BEGIN (__func__);
+    if (unlikely (target == NULL)) {
+        CAIRO_TRACE_END (__func__);
 	return _cairo_create_in_error (_cairo_error (CAIRO_STATUS_NULL_POINTER));
-    if (unlikely (target->status))
+    }
+    if (unlikely (target->status)) {
+        CAIRO_TRACE_END (__func__);
 	return _cairo_create_in_error (target->status);
+    }
 
-    if (target->backend->create_context == NULL)
+    if (target->backend->create_context == NULL) {
+        CAIRO_TRACE_END (__func__);
 	return _cairo_create_in_error (_cairo_error (CAIRO_STATUS_WRITE_ERROR));
+    }
 
-    return target->backend->create_context (target);
+    cairo_t *cr = target->backend->create_context (target);
+    CAIRO_TRACE_END (__func__);
+    return cr;
 
 }
 slim_hidden_def (cairo_create);
@@ -295,15 +305,21 @@ _cairo_fini (cairo_t *cr)
 void
 cairo_destroy (cairo_t *cr)
 {
-    if (cr == NULL || CAIRO_REFERENCE_COUNT_IS_INVALID (&cr->ref_count))
+    CAIRO_TRACE_BEGIN (__func__);
+    if (cr == NULL || CAIRO_REFERENCE_COUNT_IS_INVALID (&cr->ref_count)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     assert (CAIRO_REFERENCE_COUNT_HAS_REFERENCE (&cr->ref_count));
 
-    if (! _cairo_reference_count_dec_and_test (&cr->ref_count))
+    if (! _cairo_reference_count_dec_and_test (&cr->ref_count)) {
+        CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     cr->backend->destroy (cr);
+    CAIRO_TRACE_END (__func__);
 }
 slim_hidden_def (cairo_destroy);
 
@@ -400,14 +416,18 @@ cairo_get_reference_count (cairo_t *cr)
 void
 cairo_save (cairo_t *cr)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_status_t status;
 
-    if (unlikely (cr->status))
+    if (unlikely (cr->status)) {
+        CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     status = cr->backend->save (cr);
     if (unlikely (status))
 	_cairo_set_error (cr, status);
+    CAIRO_TRACE_END (__func__);
 }
 slim_hidden_def(cairo_save);
 
@@ -424,14 +444,18 @@ slim_hidden_def(cairo_save);
 void
 cairo_restore (cairo_t *cr)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_status_t status;
 
-    if (unlikely (cr->status))
+    if (unlikely (cr->status)) {
+        CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     status = cr->backend->restore (cr);
     if (unlikely (status))
 	_cairo_set_error (cr, status);
+    CAIRO_TRACE_END (__func__);
 }
 slim_hidden_def(cairo_restore);
 
@@ -671,14 +695,18 @@ cairo_set_opacity (cairo_t *cr, double opacity)
 void
 cairo_set_source_rgb (cairo_t *cr, double red, double green, double blue)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_status_t status;
 
-    if (unlikely (cr->status))
+    if (unlikely (cr->status)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     status = cr->backend->set_source_rgba (cr, red, green, blue, 1.);
     if (unlikely (status))
 	_cairo_set_error (cr, status);
+    CAIRO_TRACE_END (__func__);
 }
 slim_hidden_def (cairo_set_source_rgb);
 
@@ -749,19 +777,24 @@ cairo_set_source_surface (cairo_t	  *cr,
 			  double	   x,
 			  double	   y)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_status_t status;
 
-    if (unlikely (cr->status))
+    if (unlikely (cr->status)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     if (unlikely (surface == NULL)) {
 	_cairo_set_error (cr, CAIRO_STATUS_NULL_POINTER);
+	CAIRO_TRACE_END (__func__);
 	return;
     }
 
     status = cr->backend->set_source_surface (cr, surface, x, y);
     if (unlikely (status))
 	_cairo_set_error (cr, status);
+    CAIRO_TRACE_END (__func__);
 }
 slim_hidden_def (cairo_set_source_surface);
 
@@ -1187,14 +1220,18 @@ cairo_set_miter_limit (cairo_t *cr, double limit)
 void
 cairo_translate (cairo_t *cr, double tx, double ty)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_status_t status;
 
-    if (unlikely (cr->status))
+    if (unlikely (cr->status)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     status = cr->backend->translate (cr, tx, ty);
     if (unlikely (status))
 	_cairo_set_error (cr, status);
+    CAIRO_TRACE_END (__func__);
 }
 slim_hidden_def (cairo_translate);
 
@@ -1214,14 +1251,18 @@ slim_hidden_def (cairo_translate);
 void
 cairo_scale (cairo_t *cr, double sx, double sy)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_status_t status;
 
-    if (unlikely (cr->status))
+    if (unlikely (cr->status)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     status = cr->backend->scale (cr, sx, sy);
     if (unlikely (status))
 	_cairo_set_error (cr, status);
+    CAIRO_TRACE_END (__func__);
 }
 slim_hidden_def (cairo_scale);
 
@@ -1242,14 +1283,18 @@ slim_hidden_def (cairo_scale);
 void
 cairo_rotate (cairo_t *cr, double angle)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_status_t status;
 
-    if (unlikely (cr->status))
+    if (unlikely (cr->status)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     status = cr->backend->rotate (cr, angle);
     if (unlikely (status))
 	_cairo_set_error (cr, status);
+    CAIRO_TRACE_END (__func__);
 }
 
 /**
@@ -1342,10 +1387,14 @@ cairo_identity_matrix (cairo_t *cr)
 void
 cairo_user_to_device (cairo_t *cr, double *x, double *y)
 {
-    if (unlikely (cr->status))
+    CAIRO_TRACE_BEGIN (__func__);
+    if (unlikely (cr->status)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     cr->backend->user_to_device (cr, x, y);
+    CAIRO_TRACE_END (__func__);
 }
 slim_hidden_def (cairo_user_to_device);
 
@@ -1365,10 +1414,14 @@ slim_hidden_def (cairo_user_to_device);
 void
 cairo_user_to_device_distance (cairo_t *cr, double *dx, double *dy)
 {
-    if (unlikely (cr->status))
+    CAIRO_TRACE_BEGIN (__func__);
+    if (unlikely (cr->status)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     cr->backend->user_to_device_distance (cr, dx, dy);
+    CAIRO_TRACE_END (__func__);
 }
 slim_hidden_def (cairo_user_to_device_distance);
 
@@ -1387,10 +1440,14 @@ slim_hidden_def (cairo_user_to_device_distance);
 void
 cairo_device_to_user (cairo_t *cr, double *x, double *y)
 {
-    if (unlikely (cr->status))
+    CAIRO_TRACE_BEGIN (__func__);
+    if (unlikely (cr->status)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     cr->backend->device_to_user (cr, x, y);
+    CAIRO_TRACE_END (__func__);
 }
 slim_hidden_def (cairo_device_to_user);
 
@@ -1622,10 +1679,13 @@ cairo_arc (cairo_t *cr,
 	   double radius,
 	   double angle1, double angle2)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_status_t status;
 
-    if (unlikely (cr->status))
+    if (unlikely (cr->status)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     if (angle2 < angle1) {
 	/* increase angle2 by multiples of full circle until it
@@ -1639,6 +1699,7 @@ cairo_arc (cairo_t *cr,
     status = cr->backend->arc (cr, xc, yc, radius, angle1, angle2, TRUE);
     if (unlikely (status))
 	_cairo_set_error (cr, status);
+    CAIRO_TRACE_END (__func__);
 }
 
 /**
@@ -1667,10 +1728,13 @@ cairo_arc_negative (cairo_t *cr,
 		    double radius,
 		    double angle1, double angle2)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_status_t status;
 
-    if (unlikely (cr->status))
+    if (unlikely (cr->status)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     if (angle2 > angle1) {
 	/* decrease angle2 by multiples of full circle until it
@@ -1684,6 +1748,7 @@ cairo_arc_negative (cairo_t *cr,
     status = cr->backend->arc (cr, xc, yc, radius, angle1, angle2, FALSE);
     if (unlikely (status))
 	_cairo_set_error (cr, status);
+    CAIRO_TRACE_END (__func__);
 }
 
 /* XXX: NYI
@@ -1858,14 +1923,18 @@ cairo_rectangle (cairo_t *cr,
 		 double x, double y,
 		 double width, double height)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_status_t status;
 
-    if (unlikely (cr->status))
+    if (unlikely (cr->status)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     status = cr->backend->rectangle (cr, x, y, width, height);
     if (unlikely (status))
 	_cairo_set_error (cr, status);
+    CAIRO_TRACE_END (__func__);
 }
 
 #if 0
@@ -1991,14 +2060,18 @@ cairo_path_extents (cairo_t *cr,
 void
 cairo_paint (cairo_t *cr)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_status_t status;
 
-    if (unlikely (cr->status))
+    if (unlikely (cr->status)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     status = cr->backend->paint (cr);
     if (unlikely (status))
 	_cairo_set_error (cr, status);
+    CAIRO_TRACE_END (__func__);
 }
 slim_hidden_def (cairo_paint);
 
@@ -2018,14 +2091,18 @@ void
 cairo_paint_with_alpha (cairo_t *cr,
 			double   alpha)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_status_t status;
 
-    if (unlikely (cr->status))
+    if (unlikely (cr->status)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     status = cr->backend->paint_with_alpha (cr, alpha);
     if (unlikely (status))
 	_cairo_set_error (cr, status);
+    CAIRO_TRACE_END (__func__);
 }
 
 /**
@@ -2044,24 +2121,30 @@ void
 cairo_mask (cairo_t         *cr,
 	    cairo_pattern_t *pattern)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_status_t status;
 
-    if (unlikely (cr->status))
+    if (unlikely (cr->status)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     if (unlikely (pattern == NULL)) {
 	_cairo_set_error (cr, CAIRO_STATUS_NULL_POINTER);
+	CAIRO_TRACE_END (__func__);
 	return;
     }
 
     if (unlikely (pattern->status)) {
 	_cairo_set_error (cr, pattern->status);
+	CAIRO_TRACE_END (__func__);
 	return;
     }
 
     status = cr->backend->mask (cr, pattern);
     if (unlikely (status))
 	_cairo_set_error (cr, status);
+    CAIRO_TRACE_END (__func__);
 }
 slim_hidden_def (cairo_mask);
 
@@ -2085,11 +2168,14 @@ cairo_mask_surface (cairo_t         *cr,
 		    double           surface_x,
 		    double           surface_y)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_pattern_t *pattern;
     cairo_matrix_t matrix;
 
-    if (unlikely (cr->status))
+    if (unlikely (cr->status)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     pattern = cairo_pattern_create_for_surface (surface);
 
@@ -2099,6 +2185,7 @@ cairo_mask_surface (cairo_t         *cr,
     cairo_mask (cr, pattern);
 
     cairo_pattern_destroy (pattern);
+    CAIRO_TRACE_END (__func__);
 }
 
 /**
@@ -2138,14 +2225,18 @@ cairo_mask_surface (cairo_t         *cr,
 void
 cairo_stroke (cairo_t *cr)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_status_t status;
 
-    if (unlikely (cr->status))
+    if (unlikely (cr->status)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     status = cr->backend->stroke (cr);
     if (unlikely (status))
 	_cairo_set_error (cr, status);
+    CAIRO_TRACE_END (__func__);
 }
 slim_hidden_def(cairo_stroke);
 
@@ -2167,14 +2258,18 @@ slim_hidden_def(cairo_stroke);
 void
 cairo_stroke_preserve (cairo_t *cr)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_status_t status;
 
-    if (unlikely (cr->status))
+    if (unlikely (cr->status)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     status = cr->backend->stroke_preserve (cr);
     if (unlikely (status))
 	_cairo_set_error (cr, status);
+    CAIRO_TRACE_END (__func__);
 }
 slim_hidden_def(cairo_stroke_preserve);
 
@@ -2193,14 +2288,18 @@ slim_hidden_def(cairo_stroke_preserve);
 void
 cairo_fill (cairo_t *cr)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_status_t status;
 
-    if (unlikely (cr->status))
+    if (unlikely (cr->status)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     status = cr->backend->fill (cr);
     if (unlikely (status))
 	_cairo_set_error (cr, status);
+    CAIRO_TRACE_END (__func__);
 }
 
 /**
@@ -2219,14 +2318,18 @@ cairo_fill (cairo_t *cr)
 void
 cairo_fill_preserve (cairo_t *cr)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_status_t status;
 
-    if (unlikely (cr->status))
+    if (unlikely (cr->status)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     status = cr->backend->fill_preserve (cr);
     if (unlikely (status))
 	_cairo_set_error (cr, status);
+    CAIRO_TRACE_END (__func__);
 }
 slim_hidden_def(cairo_fill_preserve);
 
@@ -2386,6 +2489,7 @@ void
 cairo_stroke_extents (cairo_t *cr,
                       double *x1, double *y1, double *x2, double *y2)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_status_t status;
 
     if (unlikely (cr->status)) {
@@ -2398,12 +2502,14 @@ cairo_stroke_extents (cairo_t *cr,
 	if (y2)
 	    *y2 = 0.0;
 
+	CAIRO_TRACE_END (__func__);
 	return;
     }
 
     status = cr->backend->stroke_extents (cr, x1, y1, x2, y2);
     if (unlikely (status))
 	_cairo_set_error (cr, status);
+    CAIRO_TRACE_END (__func__);
 }
 
 /**
@@ -2437,6 +2543,7 @@ void
 cairo_fill_extents (cairo_t *cr,
                     double *x1, double *y1, double *x2, double *y2)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_status_t status;
 
     if (unlikely (cr->status)) {
@@ -2449,12 +2556,14 @@ cairo_fill_extents (cairo_t *cr,
 	if (y2)
 	    *y2 = 0.0;
 
+	CAIRO_TRACE_END (__func__);
 	return;
     }
 
     status = cr->backend->fill_extents (cr, x1, y1, x2, y2);
     if (unlikely (status))
 	_cairo_set_error (cr, status);
+    CAIRO_TRACE_END (__func__);
 }
 
 /**
@@ -2581,6 +2690,7 @@ cairo_clip_extents (cairo_t *cr,
 		    double *x1, double *y1,
 		    double *x2, double *y2)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_status_t status;
 
     if (x1)
@@ -2592,12 +2702,15 @@ cairo_clip_extents (cairo_t *cr,
     if (y2)
 	*y2 = 0.0;
 
-    if (unlikely (cr->status))
+    if (unlikely (cr->status)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     status = cr->backend->clip_extents (cr, x1, y1, x2, y2);
     if (unlikely (status))
 	_cairo_set_error (cr, status);
+    CAIRO_TRACE_END (__func__);
 }
 
 /**
@@ -3192,6 +3305,7 @@ cairo_glyph_extents (cairo_t                *cr,
 void
 cairo_show_text (cairo_t *cr, const char *utf8)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_text_extents_t extents;
     cairo_status_t status;
     cairo_glyph_t *glyphs, *last_glyph;
@@ -3205,15 +3319,20 @@ cairo_show_text (cairo_t *cr, const char *utf8)
     cairo_scaled_font_t *scaled_font;
     cairo_glyph_text_info_t info, *i;
 
-    if (unlikely (cr->status))
+    if (unlikely (cr->status)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
-    if (utf8 == NULL)
+    if (utf8 == NULL) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     scaled_font = cairo_get_scaled_font (cr);
     if (unlikely (scaled_font->status)) {
 	_cairo_set_error (cr, scaled_font->status);
+	CAIRO_TRACE_END (__func__);
 	return;
     }
 
@@ -3243,8 +3362,10 @@ cairo_show_text (cairo_t *cr, const char *utf8)
     if (unlikely (status))
 	goto BAIL;
 
-    if (num_glyphs == 0)
+    if (num_glyphs == 0) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     i = NULL;
     if (has_show_text_glyphs) {
@@ -3277,6 +3398,7 @@ cairo_show_text (cairo_t *cr, const char *utf8)
 
     if (unlikely (status))
 	_cairo_set_error (cr, status);
+    CAIRO_TRACE_END (__func__);
 }
 
 /**
@@ -3294,27 +3416,35 @@ cairo_show_text (cairo_t *cr, const char *utf8)
 void
 cairo_show_glyphs (cairo_t *cr, const cairo_glyph_t *glyphs, int num_glyphs)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_status_t status;
 
-    if (unlikely (cr->status))
+    if (unlikely (cr->status)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
-    if (num_glyphs == 0)
+    if (num_glyphs == 0) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     if (num_glyphs < 0) {
 	_cairo_set_error (cr, CAIRO_STATUS_NEGATIVE_COUNT);
+	CAIRO_TRACE_END (__func__);
 	return;
     }
 
     if (glyphs == NULL) {
 	_cairo_set_error (cr, CAIRO_STATUS_NULL_POINTER);
+	CAIRO_TRACE_END (__func__);
 	return;
     }
 
     status = cr->backend->glyphs (cr, glyphs, num_glyphs, NULL);
     if (unlikely (status))
 	_cairo_set_error (cr, status);
+    CAIRO_TRACE_END (__func__);
 }
 
 /**
@@ -3361,10 +3491,13 @@ cairo_show_text_glyphs (cairo_t			   *cr,
 			int			    num_clusters,
 			cairo_text_cluster_flags_t  cluster_flags)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_status_t status;
 
-    if (unlikely (cr->status))
+    if (unlikely (cr->status)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     /* A slew of sanity checks */
 
@@ -3377,6 +3510,7 @@ cairo_show_text_glyphs (cairo_t			   *cr,
 	(utf8_len     && utf8     == NULL) ||
 	(num_clusters && clusters == NULL)) {
 	_cairo_set_error (cr, CAIRO_STATUS_NULL_POINTER);
+	CAIRO_TRACE_END (__func__);
 	return;
     }
 
@@ -3387,11 +3521,14 @@ cairo_show_text_glyphs (cairo_t			   *cr,
     /* Apart from that, no negatives */
     if (num_glyphs < 0 || utf8_len < 0 || num_clusters < 0) {
 	_cairo_set_error (cr, CAIRO_STATUS_NEGATIVE_COUNT);
+	CAIRO_TRACE_END (__func__);
 	return;
     }
 
-    if (num_glyphs == 0 && utf8_len == 0)
+    if (num_glyphs == 0 && utf8_len == 0) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     if (utf8) {
 	/* Make sure clusters cover the entire glyphs and utf8 arrays,
@@ -3424,6 +3561,7 @@ cairo_show_text_glyphs (cairo_t			   *cr,
     }
     if (unlikely (status))
 	_cairo_set_error (cr, status);
+    CAIRO_TRACE_END (__func__);
 }
 
 /**
@@ -3455,6 +3593,7 @@ cairo_show_text_glyphs (cairo_t			   *cr,
 void
 cairo_text_path (cairo_t *cr, const char *utf8)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_status_t status;
     cairo_text_extents_t extents;
     cairo_glyph_t stack_glyphs[CAIRO_STACK_ARRAY_LENGTH (cairo_glyph_t)];
@@ -3463,11 +3602,15 @@ cairo_text_path (cairo_t *cr, const char *utf8)
     int num_glyphs;
     double x, y;
 
-    if (unlikely (cr->status))
+    if (unlikely (cr->status)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
-    if (utf8 == NULL)
+    if (utf8 == NULL) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
 
     glyphs = stack_glyphs;
@@ -3476,6 +3619,7 @@ cairo_text_path (cairo_t *cr, const char *utf8)
     scaled_font = cairo_get_scaled_font (cr);
     if (unlikely (scaled_font->status)) {
 	_cairo_set_error (cr, scaled_font->status);
+	CAIRO_TRACE_END (__func__);
 	return;
     }
 
@@ -3486,8 +3630,10 @@ cairo_text_path (cairo_t *cr, const char *utf8)
 					       &glyphs, &num_glyphs,
 					       NULL, NULL, NULL);
 
-    if (num_glyphs == 0)
+    if (num_glyphs == 0) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     status = cr->backend->glyph_path (cr, glyphs, num_glyphs);
 
@@ -3510,6 +3656,7 @@ cairo_text_path (cairo_t *cr, const char *utf8)
 
     if (unlikely (status))
 	_cairo_set_error (cr, status);
+    CAIRO_TRACE_END (__func__);
 }
 
 /**
@@ -3527,27 +3674,35 @@ cairo_text_path (cairo_t *cr, const char *utf8)
 void
 cairo_glyph_path (cairo_t *cr, const cairo_glyph_t *glyphs, int num_glyphs)
 {
+    CAIRO_TRACE_BEGIN (__func__);
     cairo_status_t status;
 
-    if (unlikely (cr->status))
+    if (unlikely (cr->status)) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
-    if (num_glyphs == 0)
+    if (num_glyphs == 0) {
+	CAIRO_TRACE_END (__func__);
 	return;
+    }
 
     if (unlikely (num_glyphs < 0)) {
 	_cairo_set_error (cr, CAIRO_STATUS_NEGATIVE_COUNT);
+	CAIRO_TRACE_END (__func__);
 	return;
     }
 
     if (unlikely (glyphs == NULL)) {
 	_cairo_set_error (cr, CAIRO_STATUS_NULL_POINTER);
+	CAIRO_TRACE_END (__func__);
 	return;
     }
 
     status = cr->backend->glyph_path (cr, glyphs, num_glyphs);
     if (unlikely (status))
 	_cairo_set_error (cr, status);
+    CAIRO_TRACE_END (__func__);
 }
 
 /**

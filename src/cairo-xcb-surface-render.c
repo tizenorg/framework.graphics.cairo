@@ -3630,6 +3630,9 @@ _cairo_xcb_render_compositor_paint (const cairo_compositor_t     *compositor,
 	return CAIRO_STATUS_SUCCESS;
     }
 
+    if (composite->clip == NULL)
+	return CAIRO_STATUS_NULL_POINTER;
+
      _cairo_clip_steal_boxes(composite->clip, &boxes);
      status = _clip_and_composite_boxes (surface, op, source, &boxes, composite);
      _cairo_clip_unsteal_boxes (composite->clip, &boxes);
